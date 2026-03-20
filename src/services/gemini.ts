@@ -5,38 +5,34 @@ const getAi = () => new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 export async function analyzeInspiration(imagesBase64: { mimeType: string, data: string }[]) {
   const ai = getAi();
   
-  const systemInstruction = `You are a visionary UI/UX Art Director. Your goal is to analyze the attached inspiration image(s) and translate its "vibe" into a flexible, actionable design direction. You are bridging the gap between abstract aesthetics and structured UI/UX design.
+  const systemInstruction = `You are a visionary UI/UX Art Director and AI Prompt Engineer. Your goal is to analyze the attached inspiration image(s) and translate its "vibe" into a flexible, actionable design direction, specifically optimized for generating new images in the EXACT SAME STYLE.
 
 Please output a structured analysis that captures the visual DNA of the image, strictly in the following format:
 
-1. The Core Vibe & Emotional Tone (感觉与情绪):
-Provide a short, evocative paragraph (2-3 sentences) describing the overarching aesthetic and emotional resonance of the design. How does it make the user feel?
+1. Core Vibe & Emotional Tone:
+Describe the overarching aesthetic and emotional resonance.
 
-2. The Color Atmosphere:
-Instead of rigid variables, describe the color harmony and relationship. Extract a foundational palette of 3 to 6 colors with HEX codes:
-For each color, provide:
-- HEX: #HEX
-- Role: (e.g., Dominant, Accent, Background, Surface, Text)
-- Description: (Describe its feeling or how it is used)
-Contrast & Harmony: (Briefly describe if the palette is high-contrast, monochromatic, pastel, etc.)
+2. Medium & Technique (CRITICAL FOR STYLE MATCHING):
+Be extremely specific about the artistic medium and technique. Is it 1-bit pixel art, 3D clay render, flat vector illustration, oil painting, risograph print? Mention specific techniques (e.g., "no anti-aliasing", "halftone shading", "thick impasto strokes").
 
-3. Typography Persona:
-Describe the personality of the fonts and the typographic hierarchy, rather than forcing specific font names.
+3. Color Rules & Constraints:
+What are the strict color rules? (e.g., "Strictly limited to 2 colors: solid blue and beige background", "Monochromatic", "Vibrant neon gradients"). Extract a foundational palette of EXACTLY 6 colors with HEX codes, roles, and descriptions. Even if the image has fewer colors, extrapolate to 6 complementary colors.
 
-4. Shape Language & Visual Treatment:
-Describe the physical feel of the UI components.
-Shape: Are elements soft, pill-like, and friendly? Or sharp, brutalist, and structured?
-Depth & Lighting: Describe the use of shadows, borders, glassmorphism, or flat design characteristics.
+4. Level of Detail & Texture:
+Describe the complexity. Is it minimalist, chunky, highly detailed, noisy, clean, flat, or textured?
 
-5. Semantic Keywords for Pinterest Exploration:
-Based on this analysis, provide a list of carefully chosen keywords I can use to find visually similar artworks on Pinterest. Organize them from literal to abstract. Only return the keywords, divided by Literal/Technical and Abstract/Stylistic.`;
+5. Shape Language & Visual Treatment:
+Describe the physical feel. Are elements soft and pill-like? Or sharp and brutalist? Describe depth, lighting, shadows, or flat design characteristics.
+
+6. Semantic Keywords:
+Provide a list of carefully chosen keywords to describe this exact style. Organize them from literal to abstract.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
     contents: {
       parts: [
         ...imagesBase64.map(img => ({ inlineData: img })),
-        { text: "Analyze these inspiration images according to the system instructions." }
+        { text: "Analyze these inspiration images according to the system instructions to extract the exact style DNA." }
       ]
     },
     config: {
@@ -46,9 +42,11 @@ Based on this analysis, provide a list of carefully chosen keywords I can use to
         type: Type.OBJECT,
         properties: {
           coreVibe: { type: Type.STRING },
-          colorAtmosphere: {
+          mediumAndTechnique: { type: Type.STRING },
+          colorRules: {
             type: Type.OBJECT,
             properties: {
+              rules: { type: Type.STRING },
               colors: {
                 type: Type.ARRAY,
                 items: {
@@ -60,12 +58,11 @@ Based on this analysis, provide a list of carefully chosen keywords I can use to
                   },
                   required: ["hex", "role", "description"]
                 }
-              },
-              contrastHarmony: { type: Type.STRING }
+              }
             },
-            required: ["colors", "contrastHarmony"]
+            required: ["rules", "colors"]
           },
-          typographyPersona: { type: Type.STRING },
+          detailAndTexture: { type: Type.STRING },
           shapeLanguage: {
             type: Type.OBJECT,
             properties: {
@@ -81,12 +78,25 @@ Based on this analysis, provide a list of carefully chosen keywords I can use to
             }
           }
         },
-        required: ["coreVibe", "colorAtmosphere", "typographyPersona", "shapeLanguage", "keywords"]
+        required: ["coreVibe", "mediumAndTechnique", "colorRules", "detailAndTexture", "shapeLanguage", "keywords"]
       }
     }
   });
   
-  return JSON.parse(response.text || "{}");
+  const parsed = JSON.parse(response.text || "{}");
+  
+  // Ensure at least 6 colors
+  if (parsed.colorRules && Array.isArray(parsed.colorRules.colors)) {
+    while (parsed.colorRules.colors.length < 6) {
+      parsed.colorRules.colors.push({
+        hex: "#808080",
+        role: "Supplementary Color",
+        description: "Added to meet the 6-color minimum requirement."
+      });
+    }
+  }
+  
+  return parsed;
 }
 
 export async function generateImage(prompt: string): Promise<string> {

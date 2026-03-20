@@ -7,19 +7,16 @@ import Markdown from 'react-markdown';
 
 export type AnalysisResult = {
   coreVibe: string;
-  colorAtmosphere: {
-    colors?: {
+  mediumAndTechnique: string;
+  colorRules: {
+    rules: string;
+    colors: {
       hex: string;
       role: string;
       description: string;
     }[];
-    dominantColorHex?: string;
-    dominantColorDesc?: string;
-    accentColorHex?: string;
-    accentColorDesc?: string;
-    contrastHarmony: string;
   };
-  typographyPersona: string;
+  detailAndTexture: string;
   shapeLanguage: {
     shape: string;
     depthLighting: string;
@@ -58,7 +55,6 @@ function DesktopWindow({
     <motion.div 
       drag
       dragMomentum={false}
-      dragHandle=".title-bar"
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
@@ -101,17 +97,33 @@ function DesktopIcon({ label, onDoubleClick, defaultPosition }: { label: string,
       onDoubleClick={onDoubleClick}
       className="absolute top-0 left-0 flex flex-col items-center gap-1 w-24 cursor-pointer group z-10"
     >
-      <div className="relative w-16 h-16 drop-shadow-md group-active:brightness-75 transition-all">
-        {/* Back folder flap */}
-        <div className="absolute top-2 left-1 w-14 h-12 bg-[#4A90E2] rounded-t-md border border-[#357ABD]"></div>
-        {/* Folder tab */}
-        <div className="absolute top-1 left-1 w-6 h-3 bg-[#4A90E2] rounded-t-md border-t border-l border-r border-[#357ABD]"></div>
-        {/* Front folder flap */}
-        <div className="absolute top-4 left-0 w-16 h-11 bg-[#5D9CEC] rounded-md border border-[#4A90E2] shadow-inner"></div>
-        {/* Highlight */}
-        <div className="absolute top-4 left-0 w-16 h-1 bg-white/20 rounded-t-md"></div>
+      <div className="relative flex justify-center items-center w-full h-[72px]">
+        <svg viewBox="0 0 100 100" className="w-[72px] h-[72px] drop-shadow-md group-active:brightness-75 transition-all">
+          <defs>
+            <linearGradient id="folderBack" x1="50%" y1="0%" x2="50%" y2="100%">
+              <stop offset="0%" stopColor="#2E9DFB" />
+              <stop offset="100%" stopColor="#1884E8" />
+            </linearGradient>
+            <linearGradient id="folderFront" x1="50%" y1="0%" x2="50%" y2="100%">
+              <stop offset="0%" stopColor="#62C6FF" />
+              <stop offset="100%" stopColor="#43B1FA" />
+            </linearGradient>
+          </defs>
+          {/* Back flap */}
+          <path d="M10 24 C10 19, 13 16, 18 16 L35 16 C38 16, 41 17.5, 43 20 L47 26 C49 29, 52 31, 56 31 L86 31 C91 31, 95 35, 95 40 L95 80 C95 85, 91 89, 86 89 L14 89 C9 89, 5 85, 5 80 Z" fill="url(#folderBack)" />
+          {/* Front flap */}
+          <path d="M5 35 C5 31, 8 28, 12 28 L88 28 C92 28, 95 31, 95 35 L95 80 C95 85, 91 89, 86 89 L14 89 C9 89, 5 85, 5 80 Z" fill="url(#folderFront)" />
+          {/* Top highlight */}
+          <path d="M5 35 C5 31, 8 28, 12 28 L88 28 C92 28, 95 31, 95 35 L95 36.5 C95 32.5, 92 29.5, 88 29.5 L12 29.5 C8 29.5, 5 32.5, 5 36.5 Z" fill="#BBE6FF" opacity="0.9" />
+          {/* Bottom shadow lines */}
+          <path d="M5 78 L95 78 L95 80 C95 85, 91 89, 86 89 L14 89 C9 89, 5 85, 5 80 Z" fill="#2E9DFB" />
+          <path d="M5 82 L95 82 L95 83 L5 83 Z" fill="#1884E8" opacity="0.5" />
+        </svg>
       </div>
-      <span className="text-white text-xs font-sans font-medium drop-shadow-md text-center bg-black/20 px-2 py-0.5 rounded border border-transparent group-hover:bg-[#0033A0]/60 group-hover:border-white/30 select-none">
+      <span 
+        className="text-white text-[13px] font-sans font-medium text-center px-1.5 py-0.5 rounded border border-transparent group-hover:bg-blue-500/50 group-hover:border-blue-400/30 select-none"
+        style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8), 0 0 2px rgba(0,0,0,0.5)' }}
+      >
         {label}
       </span>
     </motion.div>
@@ -256,8 +268,23 @@ export default function PrismApp() {
       if (selectedStyleRef) {
         const style = savedStyles.find(s => s.id === selectedStyleRef);
         if (style) {
-          const keywords = [...(style.analysis.keywords?.literal || []), ...(style.analysis.keywords?.abstract || [])].join(', ');
-          finalPrompt = `${prompt}. In the style of: ${style.analysis.coreVibe}. Keywords: ${keywords}`;
+          const a = style.analysis;
+          const keywords = [...(a.keywords?.literal || []), ...(a.keywords?.abstract || [])].join(', ');
+          const colorHexes = a.colorRules?.colors?.map(c => c.hex).join(', ') || '';
+          
+          finalPrompt = `
+Generate an image based on this prompt: "${prompt}".
+
+CRITICAL STYLE INSTRUCTIONS - YOU MUST STRICTLY FOLLOW THESE:
+1. Medium & Technique: ${a.mediumAndTechnique}
+2. Color Rules: ${a.colorRules?.rules}. Use these exact colors if possible: ${colorHexes}.
+3. Level of Detail & Texture: ${a.detailAndTexture}
+4. Shape & Lighting: ${a.shapeLanguage?.shape}. ${a.shapeLanguage?.depthLighting}.
+5. Core Vibe: ${a.coreVibe}
+6. Keywords: ${keywords}
+
+Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pixel art, make it strictly 1-bit pixel art.
+`;
         }
       }
       const imgData = await generateImage(finalPrompt);
@@ -629,12 +656,30 @@ export default function PrismApp() {
 
 function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onUpdate?: (newAnalysis: AnalysisResult) => void }) {
   if (!analysis) return null;
-  const colors = (analysis?.colorAtmosphere?.colors && analysis.colorAtmosphere.colors.length > 0) 
-    ? analysis.colorAtmosphere.colors.filter((c: any) => c && c.hex) 
-    : [
-        { hex: analysis?.colorAtmosphere?.dominantColorHex || '#000000', role: 'Dominant', description: analysis?.colorAtmosphere?.dominantColorDesc || '' },
-        { hex: analysis?.colorAtmosphere?.accentColorHex || '#000000', role: 'Accent', description: analysis?.colorAtmosphere?.accentColorDesc || '' }
-      ].filter((c: any) => c && c.hex);
+  const colors = analysis?.colorRules?.colors?.filter((c: any) => c && c.hex) || [];
+
+  // Pad colors to 6 for older saved styles
+  useEffect(() => {
+    if (!onUpdate) return;
+    
+    if (!analysis?.colorRules || colors.length < 6) {
+      const paddedColors = [...colors];
+      while (paddedColors.length < 6) {
+        paddedColors.push({
+          hex: '#808080',
+          role: 'Supplementary Color',
+          description: 'Added to meet the 6-color minimum requirement.'
+        });
+      }
+      onUpdate({
+        ...analysis,
+        colorRules: { 
+          rules: analysis?.colorRules?.rules || 'Standard 6-color palette.', 
+          colors: paddedColors 
+        }
+      });
+    }
+  }, [colors.length, analysis, onUpdate]);
 
   const exportToMarkdown = () => {
     const md = `# 🎨 Visual Style DNA
@@ -642,19 +687,22 @@ function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onU
 ## 1. Core Vibe & Emotional Tone
 > ${analysis.coreVibe}
 
-## 2. Color Atmosphere
+## 2. Medium & Technique
+${analysis.mediumAndTechnique}
+
+## 3. Color Rules
+**Rules:** ${analysis.colorRules?.rules || ''}
+
 ${colors.map((c: any) => `- **${c.role}** (\`${c.hex}\`): ${c.description}`).join('\n')}
 
-**Harmony:** ${analysis.colorAtmosphere?.contrastHarmony || ''}
+## 4. Level of Detail & Texture
+${analysis.detailAndTexture}
 
-## 3. Typography Persona
-${analysis.typographyPersona}
-
-## 4. Shape Language & Visual Treatment
+## 5. Shape Language & Visual Treatment
 - **Shape:** ${analysis.shapeLanguage?.shape}
 - **Depth & Lighting:** ${analysis.shapeLanguage?.depthLighting}
 
-## 5. Keywords & Tags
+## 6. Keywords & Tags
 - **Literal / Technical:** ${analysis.keywords?.literal?.join(', ')}
 - **Abstract / Stylistic:** ${analysis.keywords?.abstract?.join(', ')}
 
@@ -694,43 +742,112 @@ ${analysis.typographyPersona}
 
         {/* Colors */}
         <div>
-          <h3 className="font-serif text-xl font-semibold text-black mb-4 border-b border-gray-200 pb-2">Color Atmosphere</h3>
+          <div className="flex items-center justify-between mb-4 border-b border-gray-200 pb-2">
+            <h3 className="font-serif text-xl font-semibold text-black">Color Rules</h3>
+            {onUpdate && colors.length < 15 && (
+              <button
+                onClick={() => {
+                  const newColors = [...colors, { hex: '#000000', role: 'Custom', description: 'Added manually' }];
+                  onUpdate({
+                    ...analysis,
+                    colorRules: { ...analysis.colorRules, rules: analysis.colorRules?.rules || '', colors: newColors }
+                  });
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-black hover:bg-gray-100 rounded transition-colors"
+                title="Add a new color (up to 15)"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Color
+              </button>
+            )}
+          </div>
+          <p className="text-sm text-gray-600 mb-4 bg-gray-50 p-3 rounded-md border border-gray-100">
+            <span className="text-black font-medium">Rules:</span> {analysis?.colorRules?.rules}
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {colors.map((color, idx) => (
-              <div key={idx} className="flex gap-3 items-start bg-gray-50 p-3 rounded-md border border-gray-100">
-                <div className="w-10 h-10 rounded shadow-inner border border-black/10 shrink-0" style={{ backgroundColor: color.hex }} />
-                <div>
+              <div key={idx} className="group flex gap-3 items-start bg-gray-50 p-3 rounded-md border border-gray-100 relative hover:border-gray-300 transition-colors">
+                <label className="relative shrink-0 group/picker cursor-pointer block">
+                  {/* Native Color Picker Input */}
+                  <input
+                    type="color"
+                    value={color.hex}
+                    onChange={(e) => {
+                      if (!onUpdate) return;
+                      const newColors = [...colors];
+                      newColors[idx] = { ...newColors[idx], hex: e.target.value };
+                      onUpdate({
+                        ...analysis,
+                        colorRules: { ...analysis.colorRules, rules: analysis.colorRules?.rules || '', colors: newColors }
+                      });
+                    }}
+                    className="sr-only"
+                    title="Click to change color"
+                  />
+                  <div 
+                    className="w-10 h-10 rounded shadow-inner border border-black/10 transition-transform group-hover/picker:scale-105" 
+                    style={{ backgroundColor: color.hex }} 
+                  />
+                  {/* EyeDropper Icon (Visual only, label triggers input) */}
+                  {onUpdate && (
+                    <div 
+                      className="absolute -bottom-1.5 -right-1.5 z-20 bg-white border border-gray-300 rounded-full p-1 shadow-sm group-hover/picker:bg-gray-100 text-gray-700 transition-colors"
+                      title="Pick color"
+                    >
+                      <Pipette className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                </label>
+                <div className="flex-1 min-w-0 pr-6">
                   <div className="flex items-center gap-2">
-                    <span className="text-black font-medium text-sm">{color.role}</span>
+                    <span className="text-black font-medium text-sm truncate">{color.role}</span>
                     <span className="text-[10px] font-mono text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-200 uppercase">{color.hex}</span>
                   </div>
-                  <p className="text-xs text-gray-600 mt-1">{color.description}</p>
+                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{color.description}</p>
                 </div>
+                {/* Remove Color Button */}
+                {onUpdate && colors.length > 6 && (
+                  <button
+                    onClick={() => {
+                      const newColors = colors.filter((_, i) => i !== idx);
+                      onUpdate({
+                        ...analysis,
+                        colorRules: { ...analysis.colorRules, rules: analysis.colorRules?.rules || '', colors: newColors }
+                      });
+                    }}
+                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove color"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
-          <p className="text-sm text-gray-600 mt-4 bg-gray-50 p-3 rounded-md border border-gray-100">
-            <span className="text-black font-medium">Harmony:</span> {analysis?.colorAtmosphere?.contrastHarmony}
-          </p>
         </div>
 
-        {/* Typography & Shape */}
+        {/* Medium & Detail */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div>
-            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Typography Persona</h3>
-            <p className="text-gray-700 text-sm leading-relaxed">{analysis?.typographyPersona}</p>
+            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Medium & Technique</h3>
+            <p className="text-gray-700 text-sm leading-relaxed">{analysis?.mediumAndTechnique}</p>
           </div>
           <div>
-            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Shape & Treatment</h3>
-            <div className="space-y-3">
-              <div>
-                <span className="text-black font-medium text-xs uppercase tracking-wider">Shape</span>
-                <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.shape}</p>
-              </div>
-              <div>
-                <span className="text-black font-medium text-xs uppercase tracking-wider">Depth & Lighting</span>
-                <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.depthLighting}</p>
-              </div>
+            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Detail & Texture</h3>
+            <p className="text-gray-700 text-sm leading-relaxed">{analysis?.detailAndTexture}</p>
+          </div>
+        </div>
+
+        {/* Shape */}
+        <div>
+          <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Shape & Treatment</h3>
+          <div className="space-y-3">
+            <div>
+              <span className="text-black font-medium text-xs uppercase tracking-wider">Shape</span>
+              <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.shape}</p>
+            </div>
+            <div>
+              <span className="text-black font-medium text-xs uppercase tracking-wider">Depth & Lighting</span>
+              <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.depthLighting}</p>
             </div>
           </div>
         </div>
