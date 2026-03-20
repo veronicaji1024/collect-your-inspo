@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Inter:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Desktop metaphor */
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  color: #1a1a1a;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-family: var(--font-serif);
+}
+.markdown-body h1 { font-size: 1.5rem; }
+.markdown-body h2 { font-size: 1.25rem; }
+.markdown-body h3 { font-size: 1.125rem; }
+.markdown-body p {
+  margin-bottom: 1em;
+  line-height: 1.6;
+  color: #4a4a4a;
+}
+.markdown-body ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+  color: #4a4a4a;
+}
+.markdown-body li {
+  margin-bottom: 0.25em;
+}
+.markdown-body strong {
+  color: #1a1a1a;
+  font-weight: 600;
+}
+.markdown-body code {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  color: #1a1a1a;
+}
+.markdown-body blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1em;
+  color: #6b7280;
+  font-style: italic;
+  margin-bottom: 1em;
+}
+
+/* Old school button */
+.btn-oldschool {
+  background: #e0e0e0;
+  border: 2px solid;
+  border-top-color: #ffffff;
+  border-left-color: #ffffff;
+  border-right-color: #808080;
+  border-bottom-color: #808080;
+  color: black;
+  box-shadow: inset 1px 1px 0px #ffffff, inset -1px -1px 0px #0a0a0a;
+  transition: all 0.1s;
+}
+.btn-oldschool:active {
+  border-top-color: #808080;
+  border-left-color: #808080;
+  border-right-color: #ffffff;
+  border-bottom-color: #ffffff;
+  box-shadow: inset 1px 1px 0px #0a0a0a, inset -1px -1px 0px #ffffff;
+}

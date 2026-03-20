@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "Style": {
+      "title": "Style",
+      "description": "A saved style analysis with reference images.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who created this style."
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The ISO string date when the style was created."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Array of base64 data URLs for the reference images."
+        },
+        "analysis": {
+          "type": "string",
+          "description": "JSON stringified analysis result."
+        }
+      },
+      "required": ["userId", "date", "images", "analysis"]
+    }
+  },
+  "firestore": {
+    "styles": {
+      "schema": {
+        "$ref": "#/entities/Style"
+      },
+      "description": "Collection of saved styles."
+    }
+  }
+}
