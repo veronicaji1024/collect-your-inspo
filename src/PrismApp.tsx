@@ -1,14 +1,66 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, X, Sparkles, Loader2, Palette, Type as TypeIcon, Box, Search, Library, Plus, ArrowLeft, LogIn, LogOut, Pipette, Trash2, Download, Folder, Image as ImageIcon, Maximize2, Minimize2, Terminal } from 'lucide-react';
 import { analyzeInspiration, generateImage } from './services/gemini';
+import { auth, db, signInWithGoogle, logOut } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import Markdown from 'react-markdown';
 
+export type AnalysisType = 'style' | 'ui-ux' | 'motion';
+
 export type AnalysisResult = {
-  coreVibe: string;
-  mediumAndTechnique: string;
-  colorRules: {
+  analysisType?: AnalysisType;
+  // Style fields
+  coreVibe?: string;
+  mediumAndTechnique?: string;
+  detailAndTexture?: string;
+  shapeLanguage?: {
+    shape: string;
+    depthLighting: string;
+  };
+  lightingDirectionQuality?: string;
+  compositionSpatialLogic?: string;
+  whatThisIsNot?: string;
+  styleReplicationPrompt?: string;
+  // UI/UX fields
+  designPhilosophy?: string;
+  layoutArchitecture?: string;
+  typographySystem?: string;
+  colorSystem?: {
+    rules: string;
+    colors: {
+      tokenName: string;
+      hex: string;
+      hsl: string;
+      role: string;
+      usageContext: string;
+      opacityVariants: string;
+    }[];
+  };
+  componentLibrary?: string;
+  iconographyAndAssets?: string;
+  depthAndElevation?: string;
+  surfaceAndMaterial?: string;
+  borderAndDivider?: string;
+  interactiveAffordances?: string;
+  contentPatterns?: string;
+  negativeConstraints?: string;
+  cssCustomProperties?: string;
+  // Motion fields
+  pageLoadChoreography?: string;
+  scrollDrivenMotion?: string;
+  hoverMicroInteractions?: string;
+  transitionNavigationMotion?: string;
+  loopingAmbientMotion?: string;
+  typographyMotion?: string;
+  specialEffectsShaders?: string;
+  responsiveMotionAdaptation?: string;
+  selfContainedReplicationPrompt?: string;
+  
+  // Shared fields
+  colorRules?: {
     rules: string;
     colors: {
       hex: string;
@@ -16,14 +68,12 @@ export type AnalysisResult = {
       description: string;
     }[];
   };
-  detailAndTexture: string;
-  shapeLanguage: {
-    shape: string;
-    depthLighting: string;
-  };
   keywords: {
-    literal: string[];
-    abstract: string[];
+    literal?: string[];
+    abstract?: string[];
+    medium?: string[];
+    mood?: string[];
+    antiKeywords?: string[];
   };
 };
 
@@ -31,6 +81,7 @@ export type SavedStyle = {
   id: string;
   date: string;
   images: string[];
+  url?: string;
   analysis: AnalysisResult;
 };
 
@@ -139,8 +190,10 @@ export default function PrismApp() {
   
   // Analysis State
   const [images, setImages] = useState<string[]>([]);
+  const [url, setUrl] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(null);
+  const [analysisMode, setAnalysisMode] = useState<AnalysisType>('style');
   
   // Generate State
   const [prompt, setPrompt] = useState("");
@@ -155,53 +208,144 @@ export default function PrismApp() {
   // Wallpaper State
   const [wallpaper, setWallpaper] = useState<string>('https://i.pinimg.com/originals/83/8f/ac/838facdfae4ce6e213e42c94fb5931eb.jpg');
 
+  // Auth State
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  // Error Handler
+  const handleFirestoreError = (error: unknown, operationType: string, path: string | null) => {
+    const errInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+  };
+
   useEffect(() => {
-    const saved = localStorage.getItem('prism_styles');
-    if (saved) {
-      try {
-        setSavedStyles(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse saved styles");
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+      if (!currentUser) {
+        // Fallback to local storage if not logged in
+        const saved = localStorage.getItem('prism_styles');
+        if (saved) {
+          try {
+            setSavedStyles(JSON.parse(saved));
+          } catch (e) {
+            console.error("Failed to parse saved styles");
+          }
+        }
+        const savedWallpaper = localStorage.getItem('prism_wallpaper');
+        if (savedWallpaper && !savedWallpaper.includes('unsplash.com')) {
+          setWallpaper(savedWallpaper);
+        }
       }
-    }
-    
-    const savedWallpaper = localStorage.getItem('prism_wallpaper');
-    if (savedWallpaper && !savedWallpaper.includes('unsplash.com')) {
-      setWallpaper(savedWallpaper);
-    }
+    });
+    return () => unsubscribe();
   }, []);
 
-  const handleWallpaperUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    if (isAuthReady && user) {
+      // Listen to styles
+      const stylesRef = collection(db, `users/${user.uid}/styles`);
+      const unsubscribeStyles = onSnapshot(stylesRef, (snapshot) => {
+        const stylesData: SavedStyle[] = [];
+        snapshot.forEach((doc) => {
+          stylesData.push(doc.data() as SavedStyle);
+        });
+        // Sort by date descending
+        stylesData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setSavedStyles(stylesData);
+      }, (error) => {
+        handleFirestoreError(error, 'get', `users/${user.uid}/styles`);
+      });
+
+      // Listen to preferences
+      const prefsRef = doc(db, `users/${user.uid}/preferences/default`);
+      const unsubscribePrefs = onSnapshot(prefsRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.wallpaper) {
+            setWallpaper(data.wallpaper);
+          }
+        }
+      }, (error) => {
+        handleFirestoreError(error, 'get', `users/${user.uid}/preferences/default`);
+      });
+
+      return () => {
+        unsubscribeStyles();
+        unsubscribePrefs();
+      };
+    }
+  }, [isAuthReady, user]);
+
+  const handleWallpaperUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       if (event.target?.result) {
         const url = event.target.result as string;
         setWallpaper(url);
-        localStorage.setItem('prism_wallpaper', url);
+        if (user) {
+          try {
+            await setDoc(doc(db, `users/${user.uid}/preferences/default`), { wallpaper: url });
+          } catch (error) {
+            handleFirestoreError(error, 'write', `users/${user.uid}/preferences/default`);
+          }
+        } else {
+          localStorage.setItem('prism_wallpaper', url);
+        }
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const saveStyles = (styles: SavedStyle[]) => {
+  const saveStyles = async (styles: SavedStyle[]) => {
+    // This is now mainly used for local fallback or updating a specific style
     setSavedStyles(styles);
-    localStorage.setItem('prism_styles', JSON.stringify(styles));
+    if (!user) {
+      localStorage.setItem('prism_styles', JSON.stringify(styles));
+    }
+  };
+
+  const saveSingleStyle = async (style: SavedStyle) => {
+    if (user) {
+      try {
+        await setDoc(doc(db, `users/${user.uid}/styles/${style.id}`), style);
+      } catch (error) {
+        handleFirestoreError(error, 'write', `users/${user.uid}/styles/${style.id}`);
+      }
+    } else {
+      const newStyles = [style, ...savedStyles.filter(s => s.id !== style.id)];
+      saveStyles(newStyles);
+    }
   };
 
   const openWindow = (id: string) => {
-    if (!openWindows.includes(id)) {
-      setOpenWindows([...openWindows, id]);
-    }
+    setOpenWindows(prev => {
+      if (!prev.includes(id)) {
+        return [...prev, id];
+      }
+      return prev;
+    });
     setActiveWindow(id);
   };
 
   const closeWindow = (id: string) => {
-    setOpenWindows(openWindows.filter(w => w !== id));
-    if (activeWindow === id) {
-      setActiveWindow(openWindows[openWindows.length - 2] || '');
-    }
+    setOpenWindows(prev => {
+      const next = prev.filter(w => w !== id);
+      if (activeWindow === id) {
+        setActiveWindow(next[next.length - 1] || '');
+      }
+      return next;
+    });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -227,7 +371,7 @@ export default function PrismApp() {
   };
 
   const handleAnalyze = async () => {
-    if (images.length === 0) return;
+    if (images.length === 0 && !url.trim()) return;
     setIsAnalyzing(true);
     try {
       const formattedImages = images.map(img => {
@@ -235,17 +379,19 @@ export default function PrismApp() {
         const mimeType = prefix.split(':')[1].split(';')[0];
         return { mimeType, data };
       });
-      const result = await analyzeInspiration(formattedImages);
+      const result = await analyzeInspiration(formattedImages, analysisMode, url.trim());
       setCurrentAnalysis(result);
       
       const newStyle: SavedStyle = {
         id: Date.now().toString(),
         date: new Date().toISOString(),
         images: [...images],
+        url: url.trim() || undefined,
         analysis: result
       };
-      saveStyles([newStyle, ...savedStyles]);
+      await saveSingleStyle(newStyle);
       setImages([]);
+      setUrl('');
       
       // Open library and show the new style
       openWindow('library');
@@ -269,22 +415,73 @@ export default function PrismApp() {
         const style = savedStyles.find(s => s.id === selectedStyleRef);
         if (style) {
           const a = style.analysis;
-          const keywords = [...(a.keywords?.literal || []), ...(a.keywords?.abstract || [])].join(', ');
+          const keywords = [
+            ...(a.keywords?.literal || []), 
+            ...(a.keywords?.abstract || []),
+            ...(a.keywords?.medium || []),
+            ...(a.keywords?.mood || []),
+            ...(a.keywords?.antiKeywords || [])
+          ].join(', ');
           const colorHexes = a.colorRules?.colors?.map(c => c.hex).join(', ') || '';
           
-          finalPrompt = `
-Generate an image based on this prompt: "${prompt}".
+          if (a.analysisType === 'motion') {
+            finalPrompt = `
+You are an expert Motion Design Engineer and AI image generator. Your task is to generate a storyboard or visual representation of a website based on this prompt: "${prompt}".
 
-CRITICAL STYLE INSTRUCTIONS - YOU MUST STRICTLY FOLLOW THESE:
-1. Medium & Technique: ${a.mediumAndTechnique}
-2. Color Rules: ${a.colorRules?.rules}. Use these exact colors if possible: ${colorHexes}.
-3. Level of Detail & Texture: ${a.detailAndTexture}
-4. Shape & Lighting: ${a.shapeLanguage?.shape}. ${a.shapeLanguage?.depthLighting}.
-5. Core Vibe: ${a.coreVibe}
-6. Keywords: ${keywords}
+CRITICAL MOTION & INTERACTION STYLE INSTRUCTIONS - YOU MUST STRICTLY FOLLOW THESE:
+1. Page Load Choreography: ${a.pageLoadChoreography}
+2. Scroll-Driven Motion: ${a.scrollDrivenMotion}
+3. Hover & Micro-Interactions: ${a.hoverMicroInteractions}
+4. Transition & Navigation Motion: ${a.transitionNavigationMotion}
+5. Looping & Ambient Motion: ${a.loopingAmbientMotion}
+6. Typography Motion: ${a.typographyMotion}
+7. Special Effects & Shaders: ${a.specialEffectsShaders}
+8. Responsive Motion Adaptation: ${a.responsiveMotionAdaptation}
 
-Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pixel art, make it strictly 1-bit pixel art.
+Try to visually represent these motion concepts in the static image (e.g., motion blur, overlapping frames, dynamic composition).
 `;
+          } else if (a.analysisType === 'ui-ux') {
+            finalPrompt = `
+You are an expert UI/UX designer and AI image generator. Your task is to generate a UI/UX mockup based on this prompt: "${prompt}".
+
+CRITICAL UI/UX STYLE INSTRUCTIONS - YOU MUST STRICTLY FOLLOW THESE:
+1. Design Philosophy: ${a.designPhilosophy}
+2. Layout Architecture: ${a.layoutArchitecture}
+3. Component Library: ${a.componentLibrary}
+4. Typography System: ${a.typographySystem}
+5. Color System: ${a.colorSystem?.rules}. Use these exact colors if possible: ${(a.colorSystem?.colors || []).map(c => c.hex).join(', ')}.
+6. Surface & Material Quality: ${a.surfaceAndMaterial}
+7. Depth & Elevation System: ${a.depthAndElevation}
+8. Negative Constraints: ${a.negativeConstraints}
+
+Do not deviate from the Color System and Component Library.
+`;
+          } else {
+            if (a.styleReplicationPrompt) {
+              finalPrompt = a.styleReplicationPrompt.replace(/\[subject placeholder\]/gi, prompt);
+            } else {
+              finalPrompt = `
+You are an expert AI image generator. Your task is to generate an image that perfectly matches the requested subject while STRICTLY adhering to the provided visual style DNA.
+
+SUBJECT / PROMPT:
+"${prompt}"
+
+VISUAL STYLE DNA (YOU MUST OBEY THESE STRICTLY):
+- Medium & Technique: ${a.mediumAndTechnique}
+- Shape Language & Visual Treatment: ${a.shapeLanguage?.shape}. ${a.shapeLanguage?.depthLighting}.
+- Level of Detail & Texture: ${a.detailAndTexture}
+- Color Rules: ${a.colorRules?.rules}. (Target colors: ${colorHexes})
+- Core Vibe: ${a.coreVibe}
+- Keywords: ${keywords}
+
+CRITICAL INSTRUCTIONS:
+1. The SUBJECT ("${prompt}") must be rendered ENTIRELY in the VISUAL STYLE DNA.
+2. Do not add default realistic details if the style is abstract or stylized.
+3. If the style specifies "blurred blobs" or "no outlines", you MUST NOT use outlines or sharp edges for the subject.
+4. The final image must look like it belongs in the exact same portfolio as the reference style.
+`;
+            }
+          }
         }
       }
       const imgData = await generateImage(finalPrompt);
@@ -297,15 +494,34 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
     }
   };
 
-  const confirmDeleteStyle = () => {
+  const confirmDeleteStyle = async () => {
     if (styleToDelete) {
-      const newStyles = savedStyles.filter(s => s.id !== styleToDelete);
-      saveStyles(newStyles);
+      if (user) {
+        try {
+          await deleteDoc(doc(db, `users/${user.uid}/styles/${styleToDelete}`));
+        } catch (error) {
+          handleFirestoreError(error, 'delete', `users/${user.uid}/styles/${styleToDelete}`);
+        }
+      } else {
+        const newStyles = savedStyles.filter(s => s.id !== styleToDelete);
+        saveStyles(newStyles);
+      }
       setStyleToDelete(null);
       if (selectedStyleId === styleToDelete) {
         setSelectedStyleId(null);
       }
     }
+  };
+
+  const getStyleTitle = (style: SavedStyle) => {
+    if (style.analysis.analysisType === 'motion') {
+      const title = style.analysis.pageLoadChoreography || 'Motion DNA';
+      return title.length > 50 ? title.substring(0, 50) + '...' : title;
+    }
+    if (style.analysis.analysisType === 'ui-ux') {
+      return style.analysis.designPhilosophy || 'UI/UX Style';
+    }
+    return style.analysis.coreVibe || 'Visual Style';
   };
 
   return (
@@ -336,6 +552,27 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
         <p className="font-serif text-3xl text-black/80 italic max-w-lg ml-auto leading-snug">
           A digital instrument to deconstruct visual aesthetics and synthesize new realities.
         </p>
+      </div>
+
+      {/* Auth Button */}
+      <div className="absolute bottom-12 right-12 z-50">
+        {user ? (
+          <button 
+            onClick={logOut}
+            className="btn-oldschool px-4 py-2 font-sans text-sm flex items-center gap-2 bg-white/80 backdrop-blur"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        ) : (
+          <button 
+            onClick={signInWithGoogle}
+            className="btn-oldschool px-4 py-2 font-sans text-sm flex items-center gap-2 bg-white/80 backdrop-blur"
+          >
+            <LogIn className="w-4 h-4" />
+            Sign In to Sync
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
@@ -386,12 +623,23 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
             <div className="p-6 h-full flex flex-col bg-[#FDFDFB]">
               <div className="mb-6">
                 <h2 className="font-serif text-2xl font-semibold text-black mb-2">New Analysis</h2>
-                <p className="font-sans text-sm text-gray-600">Upload up to 4 images to extract their visual DNA.</p>
+                <p className="font-sans text-sm text-gray-600">Upload up to 4 images or provide a website URL to extract visual DNA.</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 font-sans">Website URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://example.com"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-black focus:border-black font-sans text-sm"
+                  />
+                </div>
+
                 {images.length === 0 ? (
-                  <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                       <Upload className="w-10 h-10 text-gray-400 mb-4" />
                       <p className="mb-2 text-sm text-gray-600 font-sans"><span className="font-semibold">Click to upload</span> or drag and drop</p>
@@ -425,15 +673,35 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
               </div>
 
               <div className="pt-6 mt-auto border-t border-gray-100">
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setAnalysisMode('style')}
+                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'style' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+                  >
+                    Visual Style
+                  </button>
+                  <button
+                    onClick={() => setAnalysisMode('ui-ux')}
+                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'ui-ux' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+                  >
+                    UI/UX
+                  </button>
+                  <button
+                    onClick={() => setAnalysisMode('motion')}
+                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'motion' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+                  >
+                    Motion DNA
+                  </button>
+                </div>
                 <button
                   onClick={handleAnalyze}
-                  disabled={images.length === 0 || isAnalyzing}
+                  disabled={(images.length === 0 && !url.trim()) || isAnalyzing}
                   className="w-full btn-oldschool py-3 font-serif text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isAnalyzing ? (
                     <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing DNA...</>
                   ) : (
-                    <><Sparkles className="w-5 h-5" /> Extract Style DNA</>
+                    <><Sparkles className="w-5 h-5" /> Extract {analysisMode === 'style' ? 'Style' : analysisMode === 'ui-ux' ? 'UI/UX' : 'Motion'} DNA</>
                   )}
                 </button>
               </div>
@@ -476,11 +744,18 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
                           className="group relative bg-white border border-gray-200 p-3 rounded-sm shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                           onClick={() => setSelectedStyleId(style.id)}
                         >
-                          <div className="aspect-square mb-3 bg-gray-100 overflow-hidden border border-gray-100">
-                            <img src={style.images[0]} alt="Style thumbnail" className="w-full h-full object-cover" />
+                          <div className="aspect-square mb-3 bg-gray-100 overflow-hidden border border-gray-100 flex items-center justify-center">
+                            {style.images && style.images.length > 0 ? (
+                              <img src={style.images[0]} alt="Style thumbnail" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="text-gray-400 flex flex-col items-center">
+                                <Search className="w-8 h-8 mb-2 opacity-50" />
+                                <span className="text-xs font-sans">URL Analysis</span>
+                              </div>
+                            )}
                           </div>
                           <div className="font-serif font-medium text-black truncate text-sm">
-                            {style.analysis.coreVibe.split('.')[0]}
+                            {getStyleTitle(style).split('.')[0]}
                           </div>
                           <div className="font-sans text-xs text-gray-500 mt-1">
                             {new Date(style.date).toLocaleDateString()}
@@ -518,18 +793,28 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
                       if (!style) return null;
                       return (
                         <div className="space-y-8 pb-8">
-                          <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
-                            {style.images.map((img, i) => (
-                              <div key={i} className="h-48 border border-gray-200 p-2 bg-white shadow-sm shrink-0 snap-center">
-                                <img src={img} alt="Reference" className="h-full w-auto object-cover" />
-                              </div>
-                            ))}
-                          </div>
+                          {style.images && style.images.length > 0 && (
+                            <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
+                              {style.images.map((img, i) => (
+                                <div key={i} className="h-48 border border-gray-200 p-2 bg-white shadow-sm shrink-0 snap-center">
+                                  <img src={img} alt="Reference" className="h-full w-auto object-cover" />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {style.url && (
+                            <div className="mb-6 bg-gray-50 p-3 rounded-md border border-gray-200">
+                              <span className="text-sm font-medium text-gray-700 mr-2">Source URL:</span>
+                              <a href={style.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline break-all">
+                                {style.url}
+                              </a>
+                            </div>
+                          )}
                           <AnalysisDisplay 
                             analysis={style.analysis} 
                             onUpdate={(newAnalysis) => {
-                              const newStyles = savedStyles.map(s => s.id === style.id ? { ...s, analysis: newAnalysis } : s);
-                              saveStyles(newStyles);
+                              const updatedStyle = { ...style, analysis: newAnalysis };
+                              saveSingleStyle(updatedStyle);
                             }}
                           />
                         </div>
@@ -578,7 +863,7 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
                     <option value="">None (Raw Prompt)</option>
                     {savedStyles.map(style => (
                       <option key={style.id} value={style.id}>
-                        {style.analysis.coreVibe.substring(0, 50)}...
+                        {getStyleTitle(style).substring(0, 50)}...
                       </option>
                     ))}
                   </select>
@@ -657,12 +942,14 @@ Do not deviate from the Medium & Technique and Color Rules. If it says 1-bit pix
 function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onUpdate?: (newAnalysis: AnalysisResult) => void }) {
   if (!analysis) return null;
   const colors = analysis?.colorRules?.colors?.filter((c: any) => c && c.hex) || [];
+  const isUIUX = analysis.analysisType === 'ui-ux';
+  const isMotion = analysis.analysisType === 'motion';
 
   // Pad colors to 6 for older saved styles
   useEffect(() => {
     if (!onUpdate) return;
     
-    if (!analysis?.colorRules || colors.length < 6) {
+    if (!isMotion && (!analysis?.colorRules || colors.length < 6)) {
       const paddedColors = [...colors];
       while (paddedColors.length < 6) {
         paddedColors.push({
@@ -679,10 +966,96 @@ function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onU
         }
       });
     }
-  }, [colors.length, analysis, onUpdate]);
+  }, [colors.length, analysis, onUpdate, isMotion]);
 
   const exportToMarkdown = () => {
-    const md = `# 🎨 Visual Style DNA
+    let md = '';
+    if (isMotion) {
+      md = `# 🎬 Motion Design DNA
+
+## 1. Page Load Choreography
+${analysis.pageLoadChoreography || 'N/A'}
+
+## 2. Scroll-Driven Motion
+${analysis.scrollDrivenMotion || 'N/A'}
+
+## 3. Hover & Micro-Interactions
+${analysis.hoverMicroInteractions || 'N/A'}
+
+## 4. Transition & Navigation Motion
+${analysis.transitionNavigationMotion || 'N/A'}
+
+## 5. Looping & Ambient Motion
+${analysis.loopingAmbientMotion || 'N/A'}
+
+## 6. Typography Motion
+${analysis.typographyMotion || 'N/A'}
+
+## 7. Special Effects & Shaders
+${analysis.specialEffectsShaders || 'N/A'}
+
+## 8. Responsive Motion Adaptation
+${analysis.responsiveMotionAdaptation || 'N/A'}
+
+## 9. Self-Contained Replication Prompt
+\`\`\`markdown
+${analysis.selfContainedReplicationPrompt || 'N/A'}
+\`\`\`
+
+---
+*Generated by Prism Style Library*
+`;
+    } else if (isUIUX) {
+      md = `# 📱 UI/UX Design System DNA
+
+## 1. Design Philosophy & Positioning
+> ${analysis.designPhilosophy || 'N/A'}
+
+## 2. Layout Architecture
+${analysis.layoutArchitecture || 'N/A'}
+
+## 3. Typography System
+${analysis.typographySystem || 'N/A'}
+
+## 4. Color System
+**Rules:** ${analysis.colorSystem?.rules || ''}
+
+${(analysis.colorSystem?.colors || []).map((c: any) => `- **${c.tokenName}** (\`${c.hex}\` / \`${c.hsl}\`): ${c.role} - ${c.usageContext} ${c.opacityVariants ? `(Opacity: ${c.opacityVariants})` : ''}`).join('\n')}
+
+## 5. Component Library
+${analysis.componentLibrary || 'N/A'}
+
+## 6. Iconography & Visual Assets
+${analysis.iconographyAndAssets || 'N/A'}
+
+## 7. Depth & Elevation System
+${analysis.depthAndElevation || 'N/A'}
+
+## 8. Surface & Material Quality
+${analysis.surfaceAndMaterial || 'N/A'}
+
+## 9. Border & Divider System
+${analysis.borderAndDivider || 'N/A'}
+
+## 10. Interactive Affordances & State Design
+${analysis.interactiveAffordances || 'N/A'}
+
+## 11. Content Patterns & Information Density
+${analysis.contentPatterns || 'N/A'}
+
+## 12. Negative Constraints
+${analysis.negativeConstraints || 'N/A'}
+
+## 13. CSS Custom Properties
+\`\`\`css
+${analysis.cssCustomProperties || 'N/A'}
+\`\`\`
+
+---
+*Generated by Prism Style Library*
+`;
+    } else {
+      md = `# 🎨 Visual Style DNA
 
 ## 1. Core Vibe & Emotional Tone
 > ${analysis.coreVibe}
@@ -690,25 +1063,41 @@ function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onU
 ## 2. Medium & Technique
 ${analysis.mediumAndTechnique}
 
-## 3. Color Rules
+## 3. Color Rules & Constraints
 **Rules:** ${analysis.colorRules?.rules || ''}
 
 ${colors.map((c: any) => `- **${c.role}** (\`${c.hex}\`): ${c.description}`).join('\n')}
 
-## 4. Level of Detail & Texture
+## 4. Lighting Direction & Quality
+${analysis.lightingDirectionQuality || 'N/A'}
+
+## 5. Level of Detail & Texture
 ${analysis.detailAndTexture}
 
-## 5. Shape Language & Visual Treatment
+## 6. Composition & Spatial Logic
+${analysis.compositionSpatialLogic || 'N/A'}
+
+## 7. Shape Language & Visual Treatment
 - **Shape:** ${analysis.shapeLanguage?.shape}
 - **Depth & Lighting:** ${analysis.shapeLanguage?.depthLighting}
 
-## 6. Keywords & Tags
-- **Literal / Technical:** ${analysis.keywords?.literal?.join(', ')}
-- **Abstract / Stylistic:** ${analysis.keywords?.abstract?.join(', ')}
+## 8. Semantic Keywords
+- **Medium / Technical:** ${analysis.keywords?.medium?.join(', ') || analysis.keywords?.literal?.join(', ')}
+- **Mood / Atmospheric:** ${analysis.keywords?.mood?.join(', ') || analysis.keywords?.abstract?.join(', ')}
+- **Anti-Keywords:** ${analysis.keywords?.antiKeywords?.join(', ') || 'N/A'}
+
+## 9. What This Is NOT
+${analysis.whatThisIsNot || 'N/A'}
+
+## 10. Style Replication Prompt
+\`\`\`text
+${analysis.styleReplicationPrompt || 'N/A'}
+\`\`\`
 
 ---
 *Generated by Prism Style Library*
 `;
+    }
 
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -734,16 +1123,142 @@ ${analysis.detailAndTexture}
       </div>
       
       <div className="grid grid-cols-1 gap-8">
-        {/* Vibe */}
-        <div>
-          <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Core Vibe & Emotional Tone</h3>
-          <p className="text-gray-700 leading-relaxed font-serif text-lg italic">{analysis?.coreVibe}</p>
-        </div>
+        {isMotion ? (
+          <>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">1. Page Load Choreography</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.pageLoadChoreography}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">2. Scroll-Driven Motion</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.scrollDrivenMotion}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">3. Hover & Micro-Interactions</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.hoverMicroInteractions}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">4. Transition & Navigation Motion</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.transitionNavigationMotion}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">5. Looping & Ambient Motion</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.loopingAmbientMotion}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">6. Typography Motion</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.typographyMotion}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">7. Special Effects & Shaders</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.specialEffectsShaders}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">8. Responsive Motion Adaptation</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.responsiveMotionAdaptation}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">9. Self-Contained Replication Prompt</h3>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-xs text-gray-800 whitespace-pre-wrap overflow-x-auto">
+                {analysis?.selfContainedReplicationPrompt}
+              </div>
+            </div>
+          </>
+        ) : isUIUX ? (
+          <>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">1. Design Philosophy & Positioning</h3>
+              <p className="text-gray-700 leading-relaxed font-serif text-lg italic">{analysis?.designPhilosophy}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">2. Layout Architecture</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.layoutArchitecture}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">3. Typography System</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.typographySystem}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">4. Color System</h3>
+              <p className="text-sm text-gray-600 mb-4 bg-gray-50 p-3 rounded-md border border-gray-100">
+                <span className="text-black font-medium">Rules:</span> {analysis?.colorSystem?.rules}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {(analysis?.colorSystem?.colors || []).map((color: any, idx: number) => (
+                  <div key={idx} className="group flex gap-3 items-start bg-gray-50 p-3 rounded-md border border-gray-100 relative hover:border-gray-300 transition-colors">
+                    <div 
+                      className="shrink-0 w-10 h-10 rounded shadow-inner border border-black/10" 
+                      style={{ backgroundColor: color.hex }} 
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-black font-medium text-sm truncate">{color.tokenName}</span>
+                        <span className="text-[10px] font-mono text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-200 uppercase">{color.hex}</span>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-1"><span className="font-medium">Role:</span> {color.role}</p>
+                      <p className="text-xs text-gray-600 line-clamp-2"><span className="font-medium">Context:</span> {color.usageContext}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">5. Component Library</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.componentLibrary}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">6. Iconography & Visual Assets</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.iconographyAndAssets}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">7. Depth & Elevation System</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.depthAndElevation}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">8. Surface & Material Quality</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.surfaceAndMaterial}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">9. Border & Divider System</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.borderAndDivider}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">10. Interactive Affordances & State Design</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.interactiveAffordances}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">11. Content Patterns & Information Density</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.contentPatterns}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">12. Negative Constraints</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.negativeConstraints}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">13. CSS Custom Properties</h3>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-xs text-gray-800 whitespace-pre-wrap overflow-x-auto">
+                {analysis?.cssCustomProperties}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">1. Core Vibe & Emotional Tone</h3>
+              <p className="text-gray-700 leading-relaxed font-serif text-lg italic">{analysis?.coreVibe}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">2. Medium & Technique</h3>
+              <p className="text-gray-700 leading-relaxed font-sans">{analysis?.mediumAndTechnique}</p>
+            </div>
+          </>
+        )}
 
-        {/* Colors */}
-        <div>
-          <div className="flex items-center justify-between mb-4 border-b border-gray-200 pb-2">
-            <h3 className="font-serif text-xl font-semibold text-black">Color Rules</h3>
+        {/* Colors (Only for Style Analysis now, UI/UX has its own above) */}
+        {!isUIUX && !isMotion && (
+          <div>
+            <div className="flex items-center justify-between mb-4 border-b border-gray-200 pb-2">
+              <h3 className="font-serif text-xl font-semibold text-black">3. Color Rules & Constraints</h3>
             {onUpdate && colors.length < 15 && (
               <button
                 onClick={() => {
@@ -764,9 +1279,9 @@ ${analysis.detailAndTexture}
             <span className="text-black font-medium">Rules:</span> {analysis?.colorRules?.rules}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {colors.map((color, idx) => (
+            {colors.map((color: any, idx: number) => (
               <div key={idx} className="group flex gap-3 items-start bg-gray-50 p-3 rounded-md border border-gray-100 relative hover:border-gray-300 transition-colors">
-                <label className="relative shrink-0 group/picker cursor-pointer block">
+                <label className="relative shrink-0 group/picker cursor-pointer block w-10 h-10">
                   {/* Native Color Picker Input */}
                   <input
                     type="color"
@@ -780,17 +1295,17 @@ ${analysis.detailAndTexture}
                         colorRules: { ...analysis.colorRules, rules: analysis.colorRules?.rules || '', colors: newColors }
                       });
                     }}
-                    className="sr-only"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50"
                     title="Click to change color"
                   />
                   <div 
-                    className="w-10 h-10 rounded shadow-inner border border-black/10 transition-transform group-hover/picker:scale-105" 
+                    className="absolute inset-0 rounded shadow-inner border border-black/10 transition-transform group-hover/picker:scale-105 pointer-events-none" 
                     style={{ backgroundColor: color.hex }} 
                   />
                   {/* EyeDropper Icon (Visual only, label triggers input) */}
                   {onUpdate && (
                     <div 
-                      className="absolute -bottom-1.5 -right-1.5 z-20 bg-white border border-gray-300 rounded-full p-1 shadow-sm group-hover/picker:bg-gray-100 text-gray-700 transition-colors"
+                      className="absolute -bottom-1.5 -right-1.5 z-20 bg-white border border-gray-300 rounded-full p-1 shadow-sm group-hover/picker:bg-gray-100 text-gray-700 transition-colors pointer-events-none"
                       title="Pick color"
                     >
                       <Pipette className="w-3.5 h-3.5" />
@@ -814,7 +1329,7 @@ ${analysis.detailAndTexture}
                         colorRules: { ...analysis.colorRules, rules: analysis.colorRules?.rules || '', colors: newColors }
                       });
                     }}
-                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
                     title="Remove color"
                   >
                     <X className="w-4 h-4" />
@@ -824,60 +1339,107 @@ ${analysis.detailAndTexture}
             ))}
           </div>
         </div>
+        )}
 
-        {/* Medium & Detail */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div>
-            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Medium & Technique</h3>
-            <p className="text-gray-700 text-sm leading-relaxed">{analysis?.mediumAndTechnique}</p>
-          </div>
-          <div>
-            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Detail & Texture</h3>
-            <p className="text-gray-700 text-sm leading-relaxed">{analysis?.detailAndTexture}</p>
-          </div>
-        </div>
+        {!isUIUX && !isMotion && (
+          <>
+            {/* Lighting */}
+            {analysis?.lightingDirectionQuality && (
+              <div>
+                <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">4. Lighting Direction & Quality</h3>
+                <p className="text-gray-700 text-sm leading-relaxed">{analysis.lightingDirectionQuality}</p>
+              </div>
+            )}
 
-        {/* Shape */}
-        <div>
-          <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">Shape & Treatment</h3>
-          <div className="space-y-3">
+            {/* Detail & Texture */}
             <div>
-              <span className="text-black font-medium text-xs uppercase tracking-wider">Shape</span>
-              <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.shape}</p>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">5. Level of Detail & Texture</h3>
+              <p className="text-gray-700 text-sm leading-relaxed">{analysis?.detailAndTexture}</p>
             </div>
-            <div>
-              <span className="text-black font-medium text-xs uppercase tracking-wider">Depth & Lighting</span>
-              <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.depthLighting}</p>
-            </div>
-          </div>
-        </div>
 
-        {/* Keywords */}
-        <div>
-          <h3 className="font-serif text-xl font-semibold text-black mb-4 border-b border-gray-200 pb-2">Keywords</h3>
-          <div className="space-y-4">
+            {/* Composition */}
+            {analysis?.compositionSpatialLogic && (
+              <div>
+                <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">6. Composition & Spatial Logic</h3>
+                <p className="text-gray-700 text-sm leading-relaxed">{analysis.compositionSpatialLogic}</p>
+              </div>
+            )}
+
+            {/* Shape */}
             <div>
-              <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Literal / Technical</span>
-              <div className="flex flex-wrap gap-1.5">
-                {analysis?.keywords?.literal?.map((kw, i) => (
-                  <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
-                    {kw}
-                  </span>
-                ))}
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">7. Shape Language & Visual Treatment</h3>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-black font-medium text-xs uppercase tracking-wider">Shape</span>
+                  <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.shape}</p>
+                </div>
+                <div>
+                  <span className="text-black font-medium text-xs uppercase tracking-wider">Depth & Lighting</span>
+                  <p className="text-gray-700 text-sm mt-0.5">{analysis?.shapeLanguage?.depthLighting}</p>
+                </div>
               </div>
             </div>
-            <div>
-              <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Abstract / Stylistic</span>
-              <div className="flex flex-wrap gap-1.5">
-                {analysis?.keywords?.abstract?.map((kw, i) => (
-                  <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
-                    {kw}
-                  </span>
-                ))}
-              </div>
+          </>
+        )}
+
+        {/* Keywords (Only for Style Analysis now) */}
+        {!isUIUX && !isMotion && (
+          <div>
+            <h3 className="font-serif text-xl font-semibold text-black mb-4 border-b border-gray-200 pb-2">8. Semantic Keywords</h3>
+            <div className="space-y-4">
+              <>
+                <div>
+                  <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Medium / Technical</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(analysis?.keywords?.medium || analysis?.keywords?.literal || []).map((kw: any, i: number) => (
+                      <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Mood / Atmospheric</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(analysis?.keywords?.mood || analysis?.keywords?.abstract || []).map((kw: any, i: number) => (
+                      <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {analysis?.keywords?.antiKeywords && analysis.keywords.antiKeywords.length > 0 && (
+                  <div>
+                    <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Anti-Keywords (Negative Prompt)</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {analysis.keywords.antiKeywords.map((kw: any, i: number) => (
+                        <span key={i} className="px-2.5 py-1 bg-red-50 border border-red-100 rounded text-xs text-red-700 shadow-sm">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             </div>
           </div>
-        </div>
+        )}
+
+        {!isUIUX && !isMotion && analysis?.whatThisIsNot && (
+          <div>
+            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">9. What This Is NOT</h3>
+            <p className="text-gray-700 text-sm leading-relaxed">{analysis.whatThisIsNot}</p>
+          </div>
+        )}
+
+        {!isUIUX && !isMotion && analysis?.styleReplicationPrompt && (
+          <div>
+            <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">10. Style Replication Prompt</h3>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-xs text-gray-800 whitespace-pre-wrap">
+              {analysis.styleReplicationPrompt}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

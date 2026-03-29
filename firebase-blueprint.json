@@ -1,40 +1,136 @@
 {
   "entities": {
-    "Style": {
-      "title": "Style",
-      "description": "A saved style analysis with reference images.",
+    "SavedStyle": {
+      "title": "SavedStyle",
+      "description": "A saved style analysis result",
       "type": "object",
       "properties": {
-        "userId": {
+        "id": {
           "type": "string",
-          "description": "The UID of the user who created this style."
+          "description": "Unique identifier for the style"
         },
         "date": {
           "type": "string",
-          "format": "date-time",
-          "description": "The ISO string date when the style was created."
+          "description": "ISO date string"
         },
         "images": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Array of base64 data URLs for the reference images."
+          "description": "Array of base64 encoded images or URLs"
         },
         "analysis": {
-          "type": "string",
-          "description": "JSON stringified analysis result."
+          "type": "object",
+          "description": "The analysis result",
+          "properties": {
+            "analysisType": {
+              "type": "string"
+            },
+            "coreVibe": {
+              "type": "string"
+            },
+            "mediumAndTechnique": {
+              "type": "string"
+            },
+            "detailAndTexture": {
+              "type": "string"
+            },
+            "shapeLanguage": {
+              "type": "object",
+              "properties": {
+                "shape": {
+                  "type": "string"
+                },
+                "depthLighting": {
+                  "type": "string"
+                }
+              }
+            },
+            "overallConcept": {
+              "type": "string"
+            },
+            "layoutAndSpacing": {
+              "type": "string"
+            },
+            "componentAesthetics": {
+              "type": "string"
+            },
+            "typographySystem": {
+              "type": "string"
+            },
+            "colorRules": {
+              "type": "object",
+              "properties": {
+                "rules": {
+                  "type": "string"
+                },
+                "colors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "hex": {
+                        "type": "string"
+                      },
+                      "role": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "keywords": {
+              "type": "object",
+              "properties": {
+                "literal": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "abstract": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       },
-      "required": ["userId", "date", "images", "analysis"]
+      "required": ["id", "date", "images", "analysis"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User preferences like wallpaper",
+      "type": "object",
+      "properties": {
+        "wallpaper": {
+          "type": "string",
+          "description": "URL or base64 of the wallpaper"
+        }
+      },
+      "required": ["wallpaper"]
     }
   },
   "firestore": {
-    "styles": {
+    "/users/{userId}/styles/{styleId}": {
       "schema": {
-        "$ref": "#/entities/Style"
+        "$ref": "#/entities/SavedStyle"
       },
-      "description": "Collection of saved styles."
+      "description": "Saved styles for a user"
+    },
+    "/users/{userId}/preferences/default": {
+      "schema": {
+        "$ref": "#/entities/UserPreferences"
+      },
+      "description": "User preferences"
     }
   }
 }

@@ -1,84 +1,83 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     // ===============================================================
     // Assumed Data Model
     // ===============================================================
     //
-    // Collection: styles
-    // Document ID: auto-generated
+    // Collection: users/{userId}/styles/{styleId}
+    // Document ID: styleId
     // Fields:
-    //   - userId: string (required, must match auth uid) - The UID of the user who created this style
-    //   - date: string (required) - ISO string date
-    //   - images: list (required) - Array of base64 data URLs
-    //   - analysis: string (required) - JSON stringified analysis result
+    //   - id: string (required)
+    //   - date: string (required, ISO date)
+    //   - images: list of strings (required)
+    //   - analysis: map (required)
+    //
+    // Collection: users/{userId}/preferences/default
+    // Document ID: default
+    // Fields:
+    //   - wallpaper: string (required)
     //
     // ===============================================================
 
     // ===============================================================
     // Helper Functions
     // ===============================================================
+    
     function isAuthenticated() {
-       return request.auth != null;
+      return request.auth != null;
     }
-
+    
     function isOwner(userId) {
-       return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
-
-    function isDocOwner() {
-       return isAuthenticated() && request.auth.uid == resource.data.userId;
-    }
-
-    function uidUnchanged() {
-       return !('userId' in request.resource.data) ||
-         request.resource.data.userId == request.auth.uid;
-    }
-
-    function uidNotModified() {
-       return !('userId' in request.resource.data) ||
-         request.resource.data.userId == resource.data.userId;
-    }
-
+    
     function hasRequiredFields(fields) {
-       return request.resource.data.keys().hasAll(fields);
+      return request.resource.data.keys().hasAll(fields);
     }
-
+    
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
-
+    
     function isValidDateString(dateStr) {
       return dateStr is string &&
         dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
     }
 
-    function isValidList(list, maxSize) {
-      return list is list && list.size() <= maxSize;
+    function isValidSavedStyle() {
+      let data = request.resource.data;
+      return hasRequiredFields(['id', 'date', 'images', 'analysis']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             isValidDateString(data.date) &&
+             data.images is list && data.images.size() <= 10 &&
+             data.analysis is map;
     }
 
-    function isValidStyle(data) {
-      return hasOnlyAllowedFields(['userId', 'date', 'images', 'analysis']) &&
-             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
-             isValidDateString(data.date) &&
-             isValidList(data.images, 3) &&
-             (data.analysis is string || data.analysis is map);
+    function isValidUserPreferences() {
+      let data = request.resource.data;
+      return hasRequiredFields(['wallpaper']) &&
+             data.wallpaper is string && data.wallpaper.size() < 1048576; // 1MB limit for base64
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
-    match /styles/{styleId} {
-      allow read: if isAuthenticated() && isDocOwner();
-      allow create: if isAuthenticated() && 
-                    isValidStyle(request.resource.data) && 
-                    isOwner(request.resource.data.userId);
-      allow update: if isAuthenticated() && 
-                    isDocOwner() &&
-                    isValidStyle(request.resource.data) && 
-                    uidNotModified();
-      allow delete: if isAuthenticated() && isDocOwner();
+
+    match /users/{userId} {
+      match /styles/{styleId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidSavedStyle();
+        allow update: if isOwner(userId) && isValidSavedStyle();
+        allow delete: if isOwner(userId);
+      }
+      
+      match /preferences/default {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidUserPreferences();
+        allow update: if isOwner(userId) && isValidUserPreferences();
+        allow delete: if isOwner(userId);
+      }
     }
   }
 }
