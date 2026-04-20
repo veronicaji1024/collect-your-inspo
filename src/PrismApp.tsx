@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, X, Sparkles, Loader2, Palette, Type as TypeIcon, Box, Search, Library, Plus, ArrowLeft, LogIn, LogOut, Pipette, Trash2, Download, Folder, Image as ImageIcon, Maximize2, Minimize2, Terminal } from 'lucide-react';
+import { Upload, X, Sparkles, Loader2, Palette, Type as TypeIcon, Box, Search, Library, Plus, ArrowLeft, LogIn, LogOut, Pipette, Trash2, Download, Folder, Image as ImageIcon, Maximize2, Minimize2, Terminal, ArrowRight, Zap, Layout, Wind, Globe } from 'lucide-react';
 import { analyzeInspiration, generateImage } from './services/gemini';
 import { auth, db, signInWithGoogle, logOut } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -191,9 +191,11 @@ export default function PrismApp() {
   // Analysis State
   const [images, setImages] = useState<string[]>([]);
   const [url, setUrl] = useState<string>('');
+  const [isClarifying, setIsClarifying] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(null);
-  const [analysisMode, setAnalysisMode] = useState<AnalysisType>('style');
+  const [analysisModes, setAnalysisModes] = useState<AnalysisType[]>(['style']);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("");
   
   // Generate State
   const [prompt, setPrompt] = useState("");
@@ -204,6 +206,7 @@ export default function PrismApp() {
   // Library State
   const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null);
   const [styleToDelete, setStyleToDelete] = useState<string | null>(null);
+  const [libraryTab, setLibraryTab] = useState<'visual' | 'ui-ux' | 'web'>('visual');
 
   // Wallpaper State
   const [wallpaper, setWallpaper] = useState<string>('https://i.pinimg.com/originals/83/8f/ac/838facdfae4ce6e213e42c94fb5931eb.jpg');
@@ -227,10 +230,39 @@ export default function PrismApp() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
-      if (!currentUser) {
+      
+      if (currentUser) {
+        // Migration logic: Sync local styles to cloud
+        const localStyles = localStorage.getItem('prism_styles');
+        if (localStyles) {
+          try {
+            const styles = JSON.parse(localStyles) as SavedStyle[];
+            if (styles.length > 0) {
+              console.log("Migrating local styles to cloud...");
+              for (const style of styles) {
+                await setDoc(doc(db, `users/${currentUser.uid}/styles/${style.id}`), style);
+              }
+              // Clear local storage after successful migration
+              localStorage.removeItem('prism_styles');
+            }
+          } catch (e) {
+            console.error("Migration failed:", e);
+          }
+        }
+        // Migration logic: Sync wallpaper
+        const localWallpaper = localStorage.getItem('prism_wallpaper');
+        if (localWallpaper && !localWallpaper.includes('unsplash.com')) {
+          try {
+            await setDoc(doc(db, `users/${currentUser.uid}/preferences/default`), { wallpaper: localWallpaper });
+            localStorage.removeItem('prism_wallpaper');
+          } catch (e) {
+            console.error("Wallpaper migration failed:", e);
+          }
+        }
+      } else {
         // Fallback to local storage if not logged in
         const saved = localStorage.getItem('prism_styles');
         if (saved) {
@@ -239,10 +271,6 @@ export default function PrismApp() {
           } catch (e) {
             console.error("Failed to parse saved styles");
           }
-        }
-        const savedWallpaper = localStorage.getItem('prism_wallpaper');
-        if (savedWallpaper && !savedWallpaper.includes('unsplash.com')) {
-          setWallpaper(savedWallpaper);
         }
       }
     });
@@ -370,37 +398,67 @@ export default function PrismApp() {
     });
   };
 
-  const handleAnalyze = async () => {
+  const handleStartAnalysis = () => {
     if (images.length === 0 && !url.trim()) return;
+    setIsClarifying(true);
+  };
+
+  const executeAnalysis = async () => {
+    if (analysisModes.length === 0) {
+      alert("Please select at least one dimension.");
+      return;
+    }
+    
+    setIsClarifying(false);
     setIsAnalyzing(true);
+    let targetStyleId: string | null = null;
     try {
       const formattedImages = images.map(img => {
         const [prefix, data] = img.split(',');
         const mimeType = prefix.split(':')[1].split(';')[0];
         return { mimeType, data };
       });
-      const result = await analyzeInspiration(formattedImages, analysisMode, url.trim());
-      setCurrentAnalysis(result);
-      
+
+      const result = await analyzeInspiration(formattedImages, analysisModes[0], url.trim());
       const newStyle: SavedStyle = {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         date: new Date().toISOString(),
         images: [...images],
         url: url.trim() || undefined,
-        analysis: result
+        analysis: { ...result, analysisType: analysisModes[0] }
       };
+      
+      // Proactively update local state to prevent "blank screen" while waiting for Firestore sync
+      setSavedStyles(prev => [newStyle, ...prev]);
       await saveSingleStyle(newStyle);
+      
+      setAnalysisStatus("");
+
+      // Set the correct tab so the user doesn't see a "category mismatch" empty screen
+      if (analysisModes[0] === 'style') {
+        setLibraryTab('visual');
+      } else if (analysisModes[0] === 'ui-ux' || analysisModes[0] === 'motion') {
+        setLibraryTab('ui-ux');
+      }
+
+      setSelectedStyleId(newStyle.id);
+      openWindow('library');
+      setActiveWindow('library');
+      
+      closeWindow('analyze');
+
       setImages([]);
       setUrl('');
-      
-      // Open library and show the new style
-      openWindow('library');
-      setSelectedStyleId(newStyle.id);
-      closeWindow('analyze');
-      
-    } catch (error) {
+      setAnalysisModes(['style']);
+    } catch (error: any) {
       console.error("Analysis failed:", error);
-      alert("Analysis failed. Please try again.");
+      
+      // User-friendly error message for Quota issues
+      if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+        alert("Extraction Limit Reached: The engine needs to cool down. Please wait a moment or use your own API Key in Settings to bypass the free tier limit.");
+      } else {
+        alert("Analysis failed. Please try again.");
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -496,19 +554,22 @@ CRITICAL INSTRUCTIONS:
 
   const confirmDeleteStyle = async () => {
     if (styleToDelete) {
+      const idToDelete = styleToDelete;
+      // Optimistic UI: Close modal and deselect immediately
+      setStyleToDelete(null);
+      if (selectedStyleId === idToDelete) {
+        setSelectedStyleId(null);
+      }
+
       if (user) {
         try {
-          await deleteDoc(doc(db, `users/${user.uid}/styles/${styleToDelete}`));
+          await deleteDoc(doc(db, `users/${user.uid}/styles/${idToDelete}`));
         } catch (error) {
-          handleFirestoreError(error, 'delete', `users/${user.uid}/styles/${styleToDelete}`);
+          handleFirestoreError(error, 'delete', `users/${user.uid}/styles/${idToDelete}`);
         }
       } else {
-        const newStyles = savedStyles.filter(s => s.id !== styleToDelete);
+        const newStyles = savedStyles.filter(s => s.id !== idToDelete);
         saveStyles(newStyles);
-      }
-      setStyleToDelete(null);
-      if (selectedStyleId === styleToDelete) {
-        setSelectedStyleId(null);
       }
     }
   };
@@ -531,16 +592,19 @@ CRITICAL INSTRUCTIONS:
     >
       {/* Desktop Icons */}
       <DesktopIcon 
+        key="icon-start"
         label="Start" 
         onDoubleClick={() => openWindow('analyze')} 
         defaultPosition={{ x: 40, y: 40 }}
       />
       <DesktopIcon 
+        key="icon-library"
         label="Library" 
         onDoubleClick={() => openWindow('library')} 
         defaultPosition={{ x: 40, y: 140 }}
       />
       <DesktopIcon 
+        key="icon-generate"
         label="Generate" 
         onDoubleClick={() => openWindow('generate')} 
         defaultPosition={{ x: 40, y: 240 }}
@@ -579,6 +643,7 @@ CRITICAL INSTRUCTIONS:
         {/* Welcome Window */}
         {openWindows.includes('welcome') && (
           <DesktopWindow
+            key="window-welcome"
             title="Prism.exe"
             onClose={() => closeWindow('welcome')}
             isActive={activeWindow === 'welcome'}
@@ -614,6 +679,7 @@ CRITICAL INSTRUCTIONS:
         {/* Analyze Window */}
         {openWindows.includes('analyze') && (
           <DesktopWindow
+            key="window-analyze"
             title="Start.folder"
             onClose={() => closeWindow('analyze')}
             isActive={activeWindow === 'analyze'}
@@ -622,88 +688,143 @@ CRITICAL INSTRUCTIONS:
           >
             <div className="p-6 h-full flex flex-col bg-[#FDFDFB]">
               <div className="mb-6">
-                <h2 className="font-serif text-2xl font-semibold text-black mb-2">New Analysis</h2>
-                <p className="font-sans text-sm text-gray-600">Upload up to 4 images or provide a website URL to extract visual DNA.</p>
+                <h2 className="font-serif text-2xl font-semibold text-black mb-1">DNA Extraction</h2>
+                <p className="font-sans text-xs text-gray-500 uppercase tracking-widest">Forensic Inspiration Capture</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2 font-sans">Website URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://example.com"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-black focus:border-black font-sans text-sm"
-                  />
+              <div className="flex-1 flex flex-col bg-white border border-gray-100 rounded-lg overflow-hidden shadow-inner p-6">
+              {isAnalyzing ? (
+                <div className="flex-1 flex flex-col items-center justify-center space-y-4 animate-pulse">
+                  <div className="relative">
+                    <Loader2 className="w-12 h-12 text-black animate-spin" />
+                    <Sparkles className="absolute inset-0 m-auto w-4 h-4 text-black" />
+                  </div>
+                  <p className="font-serif italic text-lg text-black">{analysisStatus || "Extracting DNA Layers..."}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">Precision forensic scan in progress</p>
                 </div>
-
-                {images.length === 0 ? (
-                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <Upload className="w-10 h-10 text-gray-400 mb-4" />
-                      <p className="mb-2 text-sm text-gray-600 font-sans"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                      <p className="text-xs text-gray-500 font-sans">PNG, JPG up to 10MB</p>
+              ) : isClarifying ? (
+                <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="flex-1 overflow-y-auto space-y-8 py-4 pr-2">
+                    <div className="space-y-3">
+                      <div className="w-10 h-1 bg-black mb-2" />
+                      <h2 className="font-serif text-3xl font-light text-black leading-tight">
+                        {url.trim() ? "I've detected a live website." : "I see your inspiration images."}
+                        <br /><span className="italic">What should I focus on?</span>
+                      </h2>
                     </div>
-                    <input type="file" className="hidden" multiple accept="image/*" onChange={handleImageUpload} />
-                  </label>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      {images.map((img, idx) => (
-                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                          <img src={img} alt={`Upload ${idx + 1}`} className="w-full h-40 object-cover" />
-                          <button
-                            onClick={() => setImages(images.filter((_, i) => i !== idx))}
-                            className="absolute top-2 right-2 p-1.5 bg-white/90 rounded-full text-gray-700 hover:bg-red-50 hover:text-red-500 transition-colors shadow-sm"
+
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 gap-3">
+                        {[
+                          { id: 'style', label: 'Visual Style DNA', desc: 'Aesthetic essence, palette, shapes, and art direction.', icon: Palette },
+                          { id: 'ui-ux', label: 'UI/UX Specification', desc: '13-part design system with precise numerical tokens.', icon: Zap },
+                          { id: 'motion', label: 'Motion Choreography', desc: 'Timing, easing, and animation orchestration.', icon: Wind }
+                        ].map((option) => (
+                          <button 
+                            key={option.id}
+                            onClick={() => {
+                              setAnalysisModes([option.id as any]);
+                            }}
+                            className={cn(
+                              "w-full p-4 border rounded-lg text-left transition-all relative",
+                              analysisModes.includes(option.id as any) 
+                                ? 'bg-black text-white border-black shadow-lg scale-[1.01]' 
+                                : 'bg-white text-gray-600 border-gray-100 hover:border-black'
+                            )}
                           >
-                            <X className="w-4 h-4" />
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-bold uppercase tracking-wider">{option.label}</p>
+                              {analysisModes.includes(option.id as any) && (
+                                <option.icon className="w-3 h-3 text-white fill-white" />
+                              )}
+                            </div>
+                            <p className={cn("text-[10px] font-sans", 
+                              analysisModes.includes(option.id as any) ? "text-gray-400" : "text-gray-400"
+                            )}>
+                              {option.desc}
+                            </p>
                           </button>
-                        </div>
-                      ))}
-                      {images.length < 4 && (
-                        <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
-                          <Plus className="w-8 h-8 text-gray-400" />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-6 mt-4 border-t border-gray-100 shrink-0 bg-white">
+                    <button 
+                      onClick={() => setIsClarifying(false)} 
+                      className="px-6 py-3 font-serif text-sm text-gray-400 hover:text-black transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button 
+                      onClick={executeAnalysis} 
+                      disabled={analysisModes.length === 0}
+                      className="flex-1 bg-black text-white py-3 rounded-lg font-serif text-lg flex items-center justify-center gap-3 hover:bg-gray-900 transition-all active:scale-[0.98] shadow-xl disabled:opacity-20"
+                    >
+                      Process DNA
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2 font-sans italic">Digital Domain (URL)</label>
+                      <input
+                        type="url"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://example.design"
+                        className="w-full px-0 py-3 border-b-2 border-gray-100 focus:border-black font-serif text-xl placeholder:text-gray-200 transition-colors focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="pt-4">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-4 font-sans italic">Physical Inspiration</label>
+                      {images.length === 0 ? (
+                        <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer bg-gray-50 hover:bg-white hover:border-black transition-all">
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                            <Upload className="w-8 h-8 text-gray-300 mb-3" />
+                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Click or Drop Screenshots</p>
+                          </div>
                           <input type="file" className="hidden" multiple accept="image/*" onChange={handleImageUpload} />
                         </label>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                          {images.map((img, idx) => (
+                            <div key={idx} className="relative group rounded-md overflow-hidden border border-gray-200 aspect-[4/3]">
+                              <img src={img} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover" />
+                              <button
+                                onClick={() => setImages(images.filter((_, i) => i !== idx))}
+                                className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                              >
+                                <X className="w-6 h-6" />
+                              </button>
+                            </div>
+                          ))}
+                          {images.length < 4 && (
+                            <label className="flex items-center justify-center w-full aspect-[4/3] border-2 border-dashed border-gray-200 rounded-md cursor-pointer hover:border-black transition-colors">
+                              <Plus className="w-8 h-8 text-gray-300" />
+                              <input type="file" className="hidden" multiple accept="image/*" onChange={handleImageUpload} />
+                            </label>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                )}
-              </div>
 
-              <div className="pt-6 mt-auto border-t border-gray-100">
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setAnalysisMode('style')}
-                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'style' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
-                  >
-                    Visual Style
-                  </button>
-                  <button
-                    onClick={() => setAnalysisMode('ui-ux')}
-                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'ui-ux' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
-                  >
-                    UI/UX
-                  </button>
-                  <button
-                    onClick={() => setAnalysisMode('motion')}
-                    className={`flex-1 py-2 font-serif text-sm border border-black transition-colors ${analysisMode === 'motion' ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
-                  >
-                    Motion DNA
-                  </button>
-                </div>
-                <button
-                  onClick={handleAnalyze}
-                  disabled={(images.length === 0 && !url.trim()) || isAnalyzing}
-                  className="w-full btn-oldschool py-3 font-serif text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isAnalyzing ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing DNA...</>
-                  ) : (
-                    <><Sparkles className="w-5 h-5" /> Extract {analysisMode === 'style' ? 'Style' : analysisMode === 'ui-ux' ? 'UI/UX' : 'Motion'} DNA</>
-                  )}
-                </button>
+                  <div className="pt-8 border-t border-gray-100">
+                    <button
+                      onClick={handleStartAnalysis}
+                      disabled={(images.length === 0 && !url.trim())}
+                      className="w-full bg-black text-white py-4 font-serif text-xl flex items-center justify-center gap-2 disabled:opacity-20 disabled:cursor-not-allowed hover:bg-gray-900 transition-all active:scale-[0.98]"
+                    >
+                      Process DNA <ArrowRight className="w-6 h-6" />
+                    </button>
+                  </div>
+                </>
+              )}
               </div>
             </div>
           </DesktopWindow>
@@ -712,6 +833,7 @@ CRITICAL INSTRUCTIONS:
         {/* Library Window */}
         {openWindows.includes('library') && (
           <DesktopWindow
+            key="window-library"
             title="Style_Library.folder"
             onClose={() => closeWindow('library')}
             isActive={activeWindow === 'library'}
@@ -731,45 +853,84 @@ CRITICAL INSTRUCTIONS:
                     </button>
                   </div>
 
-                  {savedStyles.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-                      <Library className="w-12 h-12 mb-4 opacity-20" />
-                      <p className="font-sans">Your library is empty.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 overflow-y-auto pb-4 pr-2">
-                      {savedStyles.map((style) => (
-                        <div 
-                          key={style.id}
-                          className="group relative bg-white border border-gray-200 p-3 rounded-sm shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                          onClick={() => setSelectedStyleId(style.id)}
-                        >
-                          <div className="aspect-square mb-3 bg-gray-100 overflow-hidden border border-gray-100 flex items-center justify-center">
-                            {style.images && style.images.length > 0 ? (
-                              <img src={style.images[0]} alt="Style thumbnail" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="text-gray-400 flex flex-col items-center">
-                                <Search className="w-8 h-8 mb-2 opacity-50" />
-                                <span className="text-xs font-sans">URL Analysis</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="font-serif font-medium text-black truncate text-sm">
-                            {getStyleTitle(style).split('.')[0]}
-                          </div>
-                          <div className="font-sans text-xs text-gray-500 mt-1">
-                            {new Date(style.date).toLocaleDateString()}
-                          </div>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setStyleToDelete(style.id); }}
-                            className="absolute top-4 right-4 p-1.5 bg-white/90 rounded-full text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                  <div className="flex gap-6 mb-6 border-b border-gray-200">
+                    <button
+                      onClick={() => setLibraryTab('visual')}
+                      className={`pb-2 font-sans text-sm font-medium transition-colors ${libraryTab === 'visual' ? 'text-black border-b-2 border-black' : 'text-gray-500 hover:text-black'}`}
+                    >
+                      Visual Style
+                    </button>
+                    <button
+                      onClick={() => setLibraryTab('ui-ux')}
+                      className={`pb-2 font-sans text-sm font-medium transition-colors ${libraryTab === 'ui-ux' ? 'text-black border-b-2 border-black' : 'text-gray-500 hover:text-black'}`}
+                    >
+                      UI/UX
+                    </button>
+                    <button
+                      onClick={() => setLibraryTab('web')}
+                      className={`pb-2 font-sans text-sm font-medium transition-colors ${libraryTab === 'web' ? 'text-black border-b-2 border-black' : 'text-gray-500 hover:text-black'}`}
+                    >
+                      Web / URL
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const filteredStyles = savedStyles.filter(style => {
+                      const type = style.analysis.analysisType;
+                      if (libraryTab === 'visual') {
+                        return (!type || type === 'style');
+                      } else if (libraryTab === 'ui-ux') {
+                        return (type === 'ui-ux' || type === 'motion');
+                      } else if (libraryTab === 'web') {
+                        return !!style.url;
+                      }
+                      return true;
+                    });
+
+                    if (filteredStyles.length === 0) {
+                      return (
+                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                          <Library className="w-12 h-12 mb-4 opacity-20" />
+                          <p className="font-sans">No styles found in this category.</p>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-6 overflow-y-auto pb-4 pr-2">
+                        {filteredStyles.map((style) => (
+                          <div 
+                            key={style.id}
+                            className="group relative bg-white border border-gray-200 p-3 rounded-sm shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                            onClick={() => setSelectedStyleId(style.id)}
+                          >
+                            <div className="aspect-square mb-3 bg-gray-100 overflow-hidden border border-gray-100 flex items-center justify-center">
+                              {style.images && style.images.length > 0 ? (
+                                <img src={style.images[0]} alt="Style thumbnail" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-gray-400 flex flex-col items-center">
+                                  <Search className="w-8 h-8 mb-2 opacity-50" />
+                                  <span className="text-xs font-sans">URL Analysis</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="font-serif font-medium text-black truncate text-sm">
+                              {getStyleTitle(style).split('.')[0]}
+                            </div>
+                            <div className="font-sans text-xs text-gray-500 mt-1">
+                              {new Date(style.date).toLocaleDateString()}
+                            </div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setStyleToDelete(style.id); }}
+                              className="absolute top-4 right-4 p-1.5 bg-white/90 rounded-full text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="h-full flex flex-col">
@@ -790,7 +951,14 @@ CRITICAL INSTRUCTIONS:
                   <div className="flex-1 overflow-y-auto pr-2">
                     {(() => {
                       const style = savedStyles.find(s => s.id === selectedStyleId);
-                      if (!style) return null;
+                      if (!style) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                            <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                            <p className="font-sans text-sm italic">Locating analysis data...</p>
+                          </div>
+                        );
+                      }
                       return (
                         <div className="space-y-8 pb-8">
                           {style.images && style.images.length > 0 && (
@@ -830,6 +998,7 @@ CRITICAL INSTRUCTIONS:
         {/* Generate Window */}
         {openWindows.includes('generate') && (
           <DesktopWindow
+            key="window-generate"
             title="Generate.folder"
             onClose={() => closeWindow('generate')}
             isActive={activeWindow === 'generate'}
@@ -1126,6 +1295,10 @@ ${analysis.styleReplicationPrompt || 'N/A'}
         {isMotion ? (
           <>
             <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">0. Motion Architecture</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.motionArchitecture}</p>
+            </div>
+            <div>
               <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">1. Page Load Choreography</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.pageLoadChoreography}</p>
             </div>
@@ -1138,27 +1311,35 @@ ${analysis.styleReplicationPrompt || 'N/A'}
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.hoverMicroInteractions}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">4. Transition & Navigation Motion</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">4. Layout Animation</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.layoutAnimation}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">5. Transition & Navigation Motion</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.transitionNavigationMotion}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">5. Looping & Ambient Motion</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">6. Looping & Ambient Motion</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.loopingAmbientMotion}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">6. Typography Motion</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">7. Typography Motion</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.typographyMotion}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">7. Special Effects & Shaders</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">8. Data-Driven & Reactive Animation</h3>
+              <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.dataDrivenAnimation}</p>
+            </div>
+            <div>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">9. Special Effects & Shaders</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.specialEffectsShaders}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">8. Responsive Motion Adaptation</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">10. Responsive Motion Adaptation</h3>
               <p className="text-gray-700 leading-relaxed font-sans whitespace-pre-wrap">{analysis?.responsiveMotionAdaptation}</p>
             </div>
             <div>
-              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">9. Self-Contained Replication Prompt</h3>
+              <h3 className="font-serif text-xl font-semibold text-black mb-3 border-b border-gray-200 pb-2">11. Self-Contained Replication Prompt</h3>
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono text-xs text-gray-800 whitespace-pre-wrap overflow-x-auto">
                 {analysis?.selfContainedReplicationPrompt}
               </div>
@@ -1387,40 +1568,38 @@ ${analysis.styleReplicationPrompt || 'N/A'}
           <div>
             <h3 className="font-serif text-xl font-semibold text-black mb-4 border-b border-gray-200 pb-2">8. Semantic Keywords</h3>
             <div className="space-y-4">
-              <>
+              <div>
+                <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Medium / Technical</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(analysis?.keywords?.medium || analysis?.keywords?.literal || []).map((kw: any, i: number) => (
+                    <span key={`kw-med-${i}`} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Mood / Atmospheric</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(analysis?.keywords?.mood || analysis?.keywords?.abstract || []).map((kw: any, i: number) => (
+                    <span key={`kw-mood-${i}`} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {analysis?.keywords?.antiKeywords && analysis.keywords.antiKeywords.length > 0 && (
                 <div>
-                  <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Medium / Technical</span>
+                  <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Anti-Keywords (Negative Prompt)</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {(analysis?.keywords?.medium || analysis?.keywords?.literal || []).map((kw: any, i: number) => (
-                      <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
+                    {analysis.keywords.antiKeywords.map((kw: any, i: number) => (
+                      <span key={`kw-anti-${i}`} className="px-2.5 py-1 bg-red-50 border border-red-100 rounded text-xs text-red-700 shadow-sm">
                         {kw}
                       </span>
                     ))}
                   </div>
                 </div>
-                <div>
-                  <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Mood / Atmospheric</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(analysis?.keywords?.mood || analysis?.keywords?.abstract || []).map((kw: any, i: number) => (
-                      <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs text-gray-700 shadow-sm">
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                {analysis?.keywords?.antiKeywords && analysis.keywords.antiKeywords.length > 0 && (
-                  <div>
-                    <span className="text-gray-500 text-[10px] uppercase tracking-wider mb-2 block font-semibold">Anti-Keywords (Negative Prompt)</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {analysis.keywords.antiKeywords.map((kw: any, i: number) => (
-                        <span key={i} className="px-2.5 py-1 bg-red-50 border border-red-100 rounded text-xs text-red-700 shadow-sm">
-                          {kw}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+              )}
             </div>
           </div>
         )}

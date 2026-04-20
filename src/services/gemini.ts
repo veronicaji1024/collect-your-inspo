@@ -18,11 +18,12 @@ Describe the overarching aesthetic and emotional resonance in 2-3 sentences. Wha
 2. Medium & Technique (CRITICAL FOR STYLE MATCHING)
 Be extremely specific about the artistic medium and technique. Is it a photograph, 3D render, flat vector illustration, watercolor, digital gradient mesh, or something else? Name specific techniques ONLY if clearly visible (e.g., "extreme Gaussian blur", "halftone shading", "thick impasto strokes"). If you cannot confidently identify a technique, say "uncertain — appears to be [best guess]."
 3. Color Rules & Constraints
-Extract a foundational palette of EXACTLY 6 colors. For each color provide:
+Extract the PRIMARY palette of colors visible in the image (MAX 6). 
+CRITICAL: Only extract colors that are REALLY present. If the image has only 2 colors, provide only 2. DO NOT pad with gray or extrapolate. ZERO TOLERANCE for hallucinating purple or generic "SaaS" colors if they are not in the pixels. If the brand is Orange, extraction MUST show Orange. Never invert colors (e.g. don't output dark mode if input is light mode). If the image has many colors, pick the 6 most dominant and stylistically significant ones.
+For each color provide:
 HEX code
-Role (e.g., dominant background, primary accent, shadow tone)
-1-sentence description of how it behaves in the image
-If the image contains fewer than 6 distinct colors, extrapolate complementary colors that would be stylistically consistent. Mark extrapolated colors with [EXTRAPOLATED].
+Role (e.g., dominant background, primary accent)
+1-sentence description of behavior.
 4. Lighting Direction & Quality
 Describe the lighting as its own dimension. Address:
 Source direction (top-left, ambient, none, etc.)
@@ -112,9 +113,10 @@ Your goal is to analyze the attached UI reference image and extract a forensical
 CRITICAL RULES:
 1. NUMERICAL VALUES ONLY. Never say "slightly rounded" — say \`border-radius: 8px\`. Never say "generous padding" — say \`padding: 24px 32px\`. If you cannot determine exact pixels, provide your best estimate with a confidence tag: \`~12px (estimated)\`.
 2. DO NOT hallucinate UI elements. If there is no visible shadow, do not describe shadows. If there is no border, do not invent one. Describe ONLY what is observable.
-3. Every component gets a complete token set. A button is not "rounded and blue" — it is \`height: 44px, padding: 0 24px, border-radius: 22px, background: #2563EB, font-size: 14px, font-weight: 500, letter-spacing: 0.01em\`.
+3. Every component gets a complete token set. A button is NOT just a generic component — it must use the EXACT colors and dimensions found in the image. DO NOT use generic SaaS colors (like #2563EB or purple) if they are not present.
 4. Think in relationships, not absolutes. The spacing between a heading and its paragraph matters more than either spacing in isolation. Capture ratios and rhythmic patterns.
-5. Distinguish states. Every interactive element has at minimum: default, hover, active, disabled. Describe observable states; flag states you are inferring.
+5. FIDELITY TO VISUAL EVIDENCE. The provided inspiration images are the HIGHEST AUTHORITY. If the screenshots show a white background with light-colored elements (like the Spiral brand), your analysis MUST reflect that exactly. Do not speculate or hallucinate a generic "Dark Mode" or "Purple SaaS theme" just because it is a common AI design pattern. Identify background tokens based on the DOMINANT surface area. If the site is light-themed, \`bg-primary\` must be the light color observed. Do not confuse foreground elements (like black text) with background tokens.
+6. Distinguish states. Every interactive element has at minimum: default, hover, active, disabled. Describe observable states; flag states you are inferring.
 
 Output the following structured analysis:
 
@@ -128,7 +130,8 @@ Grid system (columns, max-width, gutters, padding), vertical rhythm (base unit, 
 For EACH typographic level observed (Display, H1, H2, Body, etc.), extract: Font Family, Font Weight, Font Size, Line Height, Letter Spacing, Text Transform, and Color. Note font pairing strategy and hierarchy contrast.
 
 4. Color System
-Extract exactly 8 colors. For each: Token Name, HEX Value, HSL Value, Role, Usage Context, and Opacity Variants. Note dark/light mode base, contrast relationships, and gradient usage.
+Extract the PRIMARY colors (MAX 8). For each: Token Name, HEX Value, HSL Value, Role, Usage Context. 
+CRITICAL: Only extract colors that are REALLY present in the pixels of the provided images. DO NOT default to common UI frameworks (like Shadcn, Tailwind Slate, or Linear's palette). If the input image is Light Mode with an Orange brand (like Spiral), your output MUST reflect that. If you output a Dark Mode palette for a Light Mode image, you have failed. Pick the exact unique brand colors (e.g. various shades of the dominant Brand Orange). DO NOT pad with extra grays. Note focus on real observed tokens, not generated filler.
 
 5. Component Library
 For EACH visible UI component (Buttons, Cards, Inputs, Navigation, Tags, etc.), provide a complete specification including height, padding, border-radius, background, border, font details, shadows, and hover states.
@@ -210,53 +213,44 @@ CRITICAL RULES:
 2. Every value must be numerical. Never say "smooth ease-in" — say \`ease-in, 0.6s, cubic-bezier(0.4, 0, 0.2, 1)\`. Never say "slides up" — say \`translateY(24px) → translateY(0)\`.
 3. Describe choreography, not just individual animations. The sequence and stagger timing between elements is often more important than any single animation.
 4. Separate CSS-only motion from JS-driven motion. CSS keyframes/transitions are fundamentally different from scroll-triggered, intersection-observer, or physics-based animations. Identify which engine drives each effect.
+5. Distinguish scroll-linked from scroll-triggered. Scroll-linked means animation progress is directly bound to scroll position (e.g., scrub, parallax). Scroll-triggered means scroll position fires a one-shot animation. These require entirely different implementations.
+6. Use spring parameters for physics-based motion. Never approximate spring animations with cubic-bezier. Record \`{ tension, friction, mass }\` or \`{ stiffness, damping, mass }\` depending on the library convention.
+7. Model interactions as state machines, not isolated events. A button isn't just "has a hover effect" — it has idle → hover → active → focus → disabled states, each with defined transitions between them.
 
 Output the following structured analysis:
-
-1. Page Load Choreography
-The entrance sequence when the page first renders. Extract stagger map, per-element entrance (property, from->to, duration, delay, easing), and trigger.
-
-2. Scroll-Driven Motion
-Animations triggered by or linked to scroll position. Extract trigger type, direction, and per-section scroll effects.
-
-3. Hover & Micro-Interactions
-Small feedback animations on interactive elements. Extract buttons, links, cards/containers, cursor effects, and transition timing.
-
-4. Transition & Navigation Motion
-Page transitions, modal entrances, menu animations. Extract page transitions, mobile menu, modal/dialog, and route change behavior.
-
-5. Looping & Ambient Motion
-Continuous animations that create atmosphere. Extract floating elements, background motion, breathing effects, and noise/grain overlays.
-
-6. Typography Motion
-How text itself is animated. Extract character-level, reveal style, kinetic typography, and counter/ticker animations.
-
-7. Special Effects & Shaders
-Advanced visual effects beyond standard CSS. Extract glassmorphism, gradient animations, 3D transforms, Canvas/WebGL, and SVG animation.
-
-8. Responsive Motion Adaptation
-How motion changes across breakpoints. Extract reduced motion, mobile simplification, and touch vs. hover.
-
-9. Self-Contained Replication Prompt
-A single prompt document that another AI can execute to reproduce the motion system. This prompt MUST include: Tech Stack Declaration, Animation System Setup, Choreography Map, Effect Recipes, Negative Constraints, and Timing Tokens.`;
+Layer 0: Motion Architecture (Engine, global strategy)
+Layer 1: Page Load Choreography
+Layer 2: Scroll-Driven Motion (Linked vs Triggered)
+Layer 3: Hover & Micro-Interactions (State machines)
+Layer 4: Layout Animation (FLIP, morphs)
+Layer 5: Transition & Navigation Motion
+Layer 6: Looping & Ambient Motion
+Layer 7: Typography Motion
+Layer 8: Data-Driven & Reactive Animation
+Layer 9: Special Effects & Shaders
+Layer 10: Responsive Motion Adaptation
+Layer 11: Self-Contained Replication Prompt (Complete tech docs)`;
 
     responseSchema = {
       type: Type.OBJECT,
       properties: {
+        motionArchitecture: { type: Type.STRING },
         pageLoadChoreography: { type: Type.STRING },
         scrollDrivenMotion: { type: Type.STRING },
         hoverMicroInteractions: { type: Type.STRING },
+        layoutAnimation: { type: Type.STRING },
         transitionNavigationMotion: { type: Type.STRING },
         loopingAmbientMotion: { type: Type.STRING },
         typographyMotion: { type: Type.STRING },
+        dataDrivenAnimation: { type: Type.STRING },
         specialEffectsShaders: { type: Type.STRING },
         responsiveMotionAdaptation: { type: Type.STRING },
         selfContainedReplicationPrompt: { type: Type.STRING }
       },
       required: [
-        "pageLoadChoreography", "scrollDrivenMotion", "hoverMicroInteractions",
-        "transitionNavigationMotion", "loopingAmbientMotion", "typographyMotion",
-        "specialEffectsShaders", "responsiveMotionAdaptation", "selfContainedReplicationPrompt"
+        "motionArchitecture", "pageLoadChoreography", "scrollDrivenMotion", "hoverMicroInteractions",
+        "layoutAnimation", "transitionNavigationMotion", "loopingAmbientMotion", "typographyMotion",
+        "dataDrivenAnimation", "specialEffectsShaders", "responsiveMotionAdaptation", "selfContainedReplicationPrompt"
       ]
     };
   }
@@ -267,40 +261,24 @@ A single prompt document that another AI can execute to reproduce the motion sys
   }
   if (imagesBase64.length > 0) {
     parts.push(...imagesBase64.map(img => ({ inlineData: img })));
-    parts.push({ text: "Analyze these inspiration images according to the system instructions to extract the exact style DNA." });
+    parts.push({ text: "Analyze these inspiration images according to the system instructions to extract the exact style DNA. CRITICAL: The pixels in these images are the source of truth. Prioritize the colors and layouts visible in these images over anything you might find at the URL if they differ." });
   } else if (url) {
     parts.push({ text: "Analyze the provided website URL according to the system instructions to extract the exact style DNA." });
   }
 
-  const config: any = {
-    systemInstruction,
-    responseMimeType: "application/json",
-    responseSchema
-  };
-
-  if (url) {
-    config.tools = [{ urlContext: {} }];
-  }
-
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-pro-preview",
-    contents: { parts },
-    config
+    model: "gemini-3-flash-preview",
+    contents: [{ role: 'user', parts }],
+    config: {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema,
+      tools: url ? [{ urlContext: {} }] : undefined
+    }
   });
   
   const parsed = JSON.parse(response.text || "{}");
   parsed.analysisType = type;
-  
-  // Ensure at least 6 colors
-  if (parsed.colorRules && Array.isArray(parsed.colorRules.colors)) {
-    while (parsed.colorRules.colors.length < 6) {
-      parsed.colorRules.colors.push({
-        hex: "#808080",
-        role: "Supplementary Color",
-        description: "Added to meet the 6-color minimum requirement."
-      });
-    }
-  }
   
   return parsed;
 }
