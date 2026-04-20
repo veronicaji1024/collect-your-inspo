@@ -508,10 +508,31 @@ export default function PrismApp() {
       });
 
       // Merge user-uploaded images with Playwright-captured frames
-      const allImages = [
+      let allImages = [
         ...formattedImages,
         ...capturedFrames.map(f => ({ mimeType: f.mimeType, data: f.data }))
       ];
+
+      // If URL provided but no user images, capture a screenshot so Gemini can see actual rendered colors
+      let thumbnailImages = [...images];
+      if (url.trim() && allImages.length === 0) {
+        try {
+          setAnalysisStatus('Capturing website screenshot...');
+          const captureBaseUrl = import.meta.env.VITE_CAPTURE_SERVICE_URL || '';
+          const screenshotResp = await fetch(`${captureBaseUrl}/api/screenshot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url.trim() }),
+          });
+          if (screenshotResp.ok) {
+            const { data, mimeType } = await screenshotResp.json();
+            allImages.push({ mimeType, data });
+            thumbnailImages = [`data:${mimeType};base64,${data}`];
+          }
+        } catch {
+          // Screenshot failed — analysis will rely on urlContext only
+        }
+      }
 
       // Serial analysis for each selected mode
       const mergedAnalysis: Partial<AnalysisResult> = {};
@@ -522,26 +543,6 @@ export default function PrismApp() {
         Object.assign(mergedAnalysis, result);
       }
       mergedAnalysis.analysisTypes = [...analysisModes];
-
-      // If URL provided but no user images, capture a screenshot for the Library card thumbnail
-      let thumbnailImages = [...images];
-      if (url.trim() && images.length === 0) {
-        try {
-          setAnalysisStatus('Capturing website thumbnail...');
-          const captureBaseUrl = import.meta.env.VITE_CAPTURE_SERVICE_URL || '';
-          const screenshotResp = await fetch(`${captureBaseUrl}/api/screenshot`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url.trim() }),
-          });
-          if (screenshotResp.ok) {
-            const { data, mimeType } = await screenshotResp.json();
-            thumbnailImages = [`data:${mimeType};base64,${data}`];
-          }
-        } catch {
-          // Screenshot failed silently — card will show placeholder
-        }
-      }
 
       const newStyle: SavedStyle = {
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
