@@ -200,6 +200,12 @@ export default function PrismApp() {
   const [analysisModes, setAnalysisModes] = useState<AnalysisType[]>(['style']);
   const [analysisStatus, setAnalysisStatus] = useState<string>("");
   
+  // Motion Capture State
+  const [capturedFrames, setCapturedFrames] = useState<{ data: string; mimeType: string; label: string }[]>([]);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureProgress, setCaptureProgress] = useState("");
+
   // Generate State
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -406,6 +412,50 @@ export default function PrismApp() {
     setIsClarifying(true);
   };
 
+  const handleCaptureMotion = async () => {
+    if (!url.trim()) return;
+    setIsCapturing(true);
+    setCaptureError(null);
+    setCapturedFrames([]);
+
+    // Simulated progress updates
+    const progressSteps = [
+      { msg: "Launching browser...", delay: 0 },
+      { msg: "Loading page & capturing entrance animations...", delay: 2000 },
+      { msg: "Scrolling through the page...", delay: 4000 },
+      { msg: "Testing hover interactions...", delay: 7000 },
+      { msg: "Finalizing frames...", delay: 9000 },
+    ];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const step of progressSteps) {
+      timers.push(setTimeout(() => setCaptureProgress(step.msg), step.delay));
+    }
+
+    try {
+      const resp = await fetch("/api/capture-motion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const result = await resp.json();
+
+      if (result.error && result.frames.length === 0) {
+        setCaptureError(result.error);
+      } else {
+        setCapturedFrames(result.frames);
+        if (result.error) {
+          setCaptureError(`Partial capture: ${result.error}`);
+        }
+      }
+    } catch (error: any) {
+      setCaptureError(error.message || "Failed to connect to capture server");
+    } finally {
+      timers.forEach(clearTimeout);
+      setIsCapturing(false);
+      setCaptureProgress("");
+    }
+  };
+
   const executeAnalysis = async () => {
     if (analysisModes.length === 0) {
       alert("Please select at least one dimension.");
@@ -422,7 +472,13 @@ export default function PrismApp() {
         return { mimeType, data };
       });
 
-      const result = await analyzeInspiration(formattedImages, analysisModes[0], url.trim());
+      // Merge user-uploaded images with Playwright-captured frames
+      const allImages = [
+        ...formattedImages,
+        ...capturedFrames.map(f => ({ mimeType: f.mimeType, data: f.data }))
+      ];
+
+      const result = await analyzeInspiration(allImages, analysisModes[0], url.trim());
       const newStyle: SavedStyle = {
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         date: new Date().toISOString(),
@@ -453,6 +509,8 @@ export default function PrismApp() {
       setImages([]);
       setUrl('');
       setAnalysisModes(['style']);
+      setCapturedFrames([]);
+      setCaptureError(null);
     } catch (error: any) {
       console.error("Analysis failed:", error);
       
@@ -750,18 +808,82 @@ CRITICAL INSTRUCTIONS:
                         ))}
                       </div>
                     </div>
+
+                    {/* Motion Capture Section */}
+                    {analysisModes.includes('motion') && url.trim() && (
+                      <div className="space-y-3 pt-2">
+                        <div className="w-10 h-0.5 bg-gray-200" />
+                        <p className="text-xs text-gray-500 font-sans">
+                          For better motion analysis, capture live interaction frames from the website.
+                        </p>
+
+                        {isCapturing ? (
+                          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-100">
+                            <Loader2 className="w-5 h-5 animate-spin text-black shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium text-black">{captureProgress || "Starting capture..."}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">This may take 10-15 seconds</p>
+                            </div>
+                          </div>
+                        ) : capturedFrames.length > 0 ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-medium text-black">{capturedFrames.length} frames captured</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleCaptureMotion}
+                                  className="text-[10px] text-gray-500 hover:text-black uppercase tracking-wider font-medium"
+                                >
+                                  Re-capture
+                                </button>
+                                <button
+                                  onClick={() => { setCapturedFrames([]); setCaptureError(null); }}
+                                  className="text-[10px] text-gray-500 hover:text-red-500 uppercase tracking-wider font-medium"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 overflow-x-auto pb-2 snap-x">
+                              {capturedFrames.map((frame, i) => (
+                                <div key={i} className="shrink-0 snap-center">
+                                  <img
+                                    src={`data:${frame.mimeType};base64,${frame.data}`}
+                                    alt={frame.label}
+                                    className="h-20 w-auto rounded border border-gray-200 shadow-sm"
+                                  />
+                                  <p className="text-[8px] text-gray-400 text-center mt-1 truncate max-w-[100px]">{frame.label}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleCaptureMotion}
+                            className="w-full p-3 border border-dashed border-gray-300 rounded-lg text-sm font-sans text-gray-600 hover:border-black hover:text-black transition-all flex items-center justify-center gap-2"
+                          >
+                            <Globe className="w-4 h-4" />
+                            Capture Live Motion Frames
+                          </button>
+                        )}
+
+                        {captureError && (
+                          <p className="text-xs text-red-500 font-sans">{captureError}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-6 mt-4 border-t border-gray-100 shrink-0 bg-white">
-                    <button 
-                      onClick={() => setIsClarifying(false)} 
+                    <button
+                      onClick={() => setIsClarifying(false)}
                       className="px-6 py-3 font-serif text-sm text-gray-400 hover:text-black transition-colors"
                     >
                       Back
                     </button>
-                    <button 
-                      onClick={executeAnalysis} 
-                      disabled={analysisModes.length === 0}
+                    <button
+                      onClick={executeAnalysis}
+                      disabled={analysisModes.length === 0 || isCapturing}
                       className="flex-1 bg-black text-white py-3 rounded-lg font-serif text-lg flex items-center justify-center gap-3 hover:bg-gray-900 transition-all active:scale-[0.98] shadow-xl disabled:opacity-20"
                     >
                       Process DNA

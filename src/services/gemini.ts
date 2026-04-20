@@ -206,7 +206,10 @@ Synthesize everything into a CSS Custom Properties block (:root { ... }) that a 
       ]
     };
   } else if (type === 'motion') {
-    systemInstruction = `You are a Senior Motion Design Engineer and Technical Art Director. Your job is to reverse-engineer the complete animation system of a given website and produce a prompt that achieves 1:1 motion replication — not an approximation, not "inspired by," but a forensic reproduction.
+    const sequentialFramePreamble = imagesBase64.length > 1
+      ? `IMPORTANT CONTEXT: The user has provided ${imagesBase64.length} sequential screenshots captured from a live browser session. These frames are TIME-ORDERED and show: (1) page load animation sequence at timed intervals, (2) scroll positions revealing scroll-triggered/linked animations, (3) hover state changes showing micro-interactions (before/after pairs). Compare adjacent frames carefully to identify what MOVED, FADED, SCALED, or TRANSFORMED between them. The delta between frames IS the animation data. Each frame is labeled with its capture context.\n\n`
+      : '';
+    systemInstruction = `${sequentialFramePreamble}You are a Senior Motion Design Engineer and Technical Art Director. Your job is to reverse-engineer the complete animation system of a given website and produce a prompt that achieves 1:1 motion replication — not an approximation, not "inspired by," but a forensic reproduction.
 
 CRITICAL RULES:
 1. DO NOT hallucinate motion that isn't there. If the page is static, say "No animation detected." If you can only see a screenshot, explicitly state which motions you are inferring vs. observing.
