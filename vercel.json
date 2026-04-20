@@ -7,9 +7,7 @@
   ],
   "functions": {
     "api/analyze.ts": {
-      "maxDuration": 60,
       "includeFiles": "prompts/**"
-    },
-    "api/generate-image.ts": { "maxDuration": 60 }
+    }
   }
 }

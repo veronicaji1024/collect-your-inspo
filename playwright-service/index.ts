@@ -230,14 +230,14 @@ app.post('/api/capture-motion', async (req, res) => {
   const { url } = req.body;
 
   if (!url || typeof url !== 'string') {
-    res.status(400).json({ error: 'URL is required' });
+    res.status(400).json({ frames: [], error: 'URL is required' });
     return;
   }
 
   try {
     new URL(url);
   } catch {
-    res.status(400).json({ error: 'Invalid URL' });
+    res.status(400).json({ frames: [], error: 'Invalid URL' });
     return;
   }
 
@@ -252,7 +252,7 @@ app.post('/api/capture-motion', async (req, res) => {
 
     res.json(result);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Capture failed' });
+    res.status(500).json({ frames: [], error: error.message || 'Capture failed' });
   }
 });
 
