@@ -49,12 +49,15 @@ export type AnalysisResult = {
   negativeConstraints?: string;
   cssCustomProperties?: string;
   // Motion fields
+  motionArchitecture?: string;
   pageLoadChoreography?: string;
   scrollDrivenMotion?: string;
   hoverMicroInteractions?: string;
+  layoutAnimation?: string;
   transitionNavigationMotion?: string;
   loopingAmbientMotion?: string;
   typographyMotion?: string;
+  dataDrivenAnimation?: string;
   specialEffectsShaders?: string;
   responsiveMotionAdaptation?: string;
   selfContainedReplicationPrompt?: string;
@@ -68,7 +71,7 @@ export type AnalysisResult = {
       description: string;
     }[];
   };
-  keywords: {
+  keywords?: {
     literal?: string[];
     abstract?: string[];
     medium?: string[];
@@ -421,7 +424,7 @@ export default function PrismApp() {
 
       const result = await analyzeInspiration(formattedImages, analysisModes[0], url.trim());
       const newStyle: SavedStyle = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
         date: new Date().toISOString(),
         images: [...images],
         url: url.trim() || undefined,
@@ -738,8 +741,8 @@ CRITICAL INSTRUCTIONS:
                                 <option.icon className="w-3 h-3 text-white fill-white" />
                               )}
                             </div>
-                            <p className={cn("text-[10px] font-sans", 
-                              analysisModes.includes(option.id as any) ? "text-gray-400" : "text-gray-400"
+                            <p className={cn("text-[10px] font-sans",
+                              analysisModes.includes(option.id as any) ? "text-white/60" : "text-gray-400"
                             )}>
                               {option.desc}
                             </p>
@@ -1142,6 +1145,9 @@ function AnalysisDisplay({ analysis, onUpdate }: { analysis: AnalysisResult, onU
     if (isMotion) {
       md = `# 🎬 Motion Design DNA
 
+## 0. Motion Architecture
+${analysis.motionArchitecture || 'N/A'}
+
 ## 1. Page Load Choreography
 ${analysis.pageLoadChoreography || 'N/A'}
 
@@ -1151,22 +1157,28 @@ ${analysis.scrollDrivenMotion || 'N/A'}
 ## 3. Hover & Micro-Interactions
 ${analysis.hoverMicroInteractions || 'N/A'}
 
-## 4. Transition & Navigation Motion
+## 4. Layout Animation
+${analysis.layoutAnimation || 'N/A'}
+
+## 5. Transition & Navigation Motion
 ${analysis.transitionNavigationMotion || 'N/A'}
 
-## 5. Looping & Ambient Motion
+## 6. Looping & Ambient Motion
 ${analysis.loopingAmbientMotion || 'N/A'}
 
-## 6. Typography Motion
+## 7. Typography Motion
 ${analysis.typographyMotion || 'N/A'}
 
-## 7. Special Effects & Shaders
+## 8. Data-Driven & Reactive Animation
+${analysis.dataDrivenAnimation || 'N/A'}
+
+## 9. Special Effects & Shaders
 ${analysis.specialEffectsShaders || 'N/A'}
 
-## 8. Responsive Motion Adaptation
+## 10. Responsive Motion Adaptation
 ${analysis.responsiveMotionAdaptation || 'N/A'}
 
-## 9. Self-Contained Replication Prompt
+## 11. Self-Contained Replication Prompt
 \`\`\`markdown
 ${analysis.selfContainedReplicationPrompt || 'N/A'}
 \`\`\`
