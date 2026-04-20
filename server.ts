@@ -86,11 +86,12 @@ async function startServer() {
       }
 
       const parts: any[] = [];
-      if (url) parts.push({ text: `Analyze the website at this URL: ${url}` });
-      if (images.length > 0) {
+      const hasScreenshots = images.length > 0;
+      if (hasScreenshots) {
         parts.push(...images.map((img: any) => ({ inlineData: img })));
-        parts.push({ text: "Analyze these inspiration images according to the system instructions to extract the exact style DNA. CRITICAL: The pixels in these images are the source of truth." });
+        parts.push({ text: `These are screenshots captured from ${url || 'the provided source'}. Analyze ONLY the pixels in these images to extract the exact style DNA. The colors, layouts, and typography visible in these screenshots are the ONLY source of truth. Do NOT guess or infer colors that are not visible in the pixels.` });
       } else if (url) {
+        parts.push({ text: `Analyze the website at this URL: ${url}` });
         parts.push({ text: "Analyze the provided website URL according to the system instructions to extract the exact style DNA." });
       }
 
@@ -101,7 +102,7 @@ async function startServer() {
           systemInstruction,
           responseMimeType: "application/json",
           responseSchema: schemaMap[type],
-          tools: url ? [{ urlContext: {} }] : undefined,
+          tools: (!hasScreenshots && url) ? [{ urlContext: {} }] : undefined,
         },
       });
 
