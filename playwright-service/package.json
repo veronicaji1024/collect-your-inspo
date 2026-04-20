@@ -1,0 +1,22 @@
+{
+  "name": "prism-playwright-service",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "playwright": "^1.59.1",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "typescript": "~5.8.2"
+  }
+}
