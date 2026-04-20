@@ -513,21 +513,23 @@ export default function PrismApp() {
         ...capturedFrames.map(f => ({ mimeType: f.mimeType, data: f.data }))
       ];
 
-      // If URL provided but no user images, capture a screenshot so Gemini can see actual rendered colors
+      // If URL provided but no user images, capture scrolling screenshots so Gemini can see all colors
       let thumbnailImages = [...images];
       if (url.trim() && allImages.length === 0) {
         try {
-          setAnalysisStatus('Capturing website screenshot...');
+          setAnalysisStatus('Capturing website screenshots...');
           const captureBaseUrl = import.meta.env.VITE_CAPTURE_SERVICE_URL || '';
           const screenshotResp = await fetch(`${captureBaseUrl}/api/screenshot`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url.trim() }),
+            body: JSON.stringify({ url: url.trim(), scrollFrames: 3 }),
           });
           if (screenshotResp.ok) {
-            const { data, mimeType } = await screenshotResp.json();
-            allImages.push({ mimeType, data });
-            thumbnailImages = [`data:${mimeType};base64,${data}`];
+            const { frames } = await screenshotResp.json() as { frames: { data: string; mimeType: string }[] };
+            if (frames && frames.length > 0) {
+              allImages.push(...frames);
+              thumbnailImages = [`data:${frames[0].mimeType};base64,${frames[0].data}`];
+            }
           }
         } catch {
           // Screenshot failed — analysis will rely on urlContext only

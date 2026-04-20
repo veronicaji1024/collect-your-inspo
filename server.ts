@@ -144,9 +144,9 @@ async function startServer() {
     }
   });
 
-  // Playwright screenshot for Library card thumbnails
+  // Playwright multi-scroll screenshot
   app.post("/api/screenshot", async (req, res) => {
-    const { url } = req.body;
+    const { url, scrollFrames = 3 } = req.body;
     if (!url || typeof url !== "string") {
       res.status(400).json({ error: "URL is required" });
       return;
@@ -158,10 +158,24 @@ async function startServer() {
       const page = await context.newPage();
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
       await page.waitForTimeout(2000);
-      const buffer = await page.screenshot({ type: "png", fullPage: false });
+
+      const frames: { data: string; mimeType: string }[] = [];
+      const buf0 = await page.screenshot({ type: "png", fullPage: false });
+      frames.push({ data: buf0.toString("base64"), mimeType: "image/png" });
+
+      const totalHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+      const viewportHeight = 800;
+      const maxScrolls = Math.min(scrollFrames, Math.ceil(totalHeight / viewportHeight) - 1);
+      for (let i = 1; i <= maxScrolls; i++) {
+        await page.evaluate((y) => window.scrollTo(0, y), i * viewportHeight);
+        await page.waitForTimeout(800);
+        const buf = await page.screenshot({ type: "png", fullPage: false });
+        frames.push({ data: buf.toString("base64"), mimeType: "image/png" });
+      }
+
       await context.close();
       await browser.close();
-      res.json({ data: buffer.toString("base64"), mimeType: "image/png" });
+      res.json({ frames });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Screenshot failed" });
     }
